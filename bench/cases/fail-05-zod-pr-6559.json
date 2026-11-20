@@ -1,0 +1,37 @@
+{
+  "id": "fail-05-zod-pr-6559",
+  "status": "fail",
+  "repo": "colinhacks/zod",
+  "pr": 6559,
+  "pr_url": "https://github.com/colinhacks/zod/pull/6559",
+  "language": "typescript",
+  "base_sha": "e4d67f3ea42de031f1f644a1efd7bd0a306dde56",
+  "head_sha": "b8892be81f266e7ddf60449db7c51e796691df7a",
+  "workflow_file": ".github/workflows/test.yml",
+  "run_id": 33882003354,
+  "run_url": "https://github.com/colinhacks/zod/actions/runs/33882003354",
+  "failing_job": "Lint on Node latest",
+  "failing_command": "pnpm format:check",
+  "log_excerpt": "2026-09-04T14:08:52.0013349Z ./packages/bench/failure-result-shape.ts:23:39 lint/correctness/noUnusedVariables \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n2026-09-04T14:08:52.0014166Z \n2026-09-04T14:08:52.0014375Z   ! This parameter is unused.\n2026-09-04T14:08:52.0014808Z   \n2026-09-04T14:08:52.0015410Z     22 \u2502 // 1. shipped: literal with get/set closures\n2026-09-04T14:08:52.0016271Z   > 23 \u2502 function literalAccessors(iss: any[], c: any): any {\n2026-09-04T14:08:52.0017035Z        \u2502                                       ^\n2026-09-04T14:08:52.0017601Z     24 \u2502   let error: any;\n2026-09-04T14:08:52.0017877Z     25 \u2502   return {\n2026-09-04T14:08:52.0019605Z ./packages/bench/memory/compiled-footprint.ts format \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n2026-09-04T14:08:52.0021766Z   \u00d7 Formatter would have printed the following content:\n2026-09-04T14:08:52.0026726Z     24 24 \u2502     \"5-key compiled\": () => compile(fiveKey() as never),\n2026-09-04T14:08:52.0027838Z     25 25 \u2502     \"5-key compiled, rejected once\": () => rejected(compile(fiveKey() as never)),\n2026-09-04T14:08:52.0029782Z     26    \u2502 - \u00b7\u00b7\"5-key\u00b7compiled,\u00b7issues:false,\u00b7rejected\u00b7once\":\u00b7()\u00b7=>\u00b7rejected(compile(fiveKey()\u00b7as\u00b7never,\u00b7{\u00b7issues:\u00b7false\u00b7}\u00b7as\u00b7never)),\n2026-09-04T14:08:52.0031158Z        26 \u2502 + \u00b7\u00b7\"5-key\u00b7compiled,\u00b7issues:false,\u00b7rejected\u00b7once\":\u00b7()\u00b7=>\n2026-09-04T14:08:52.0032171Z        27 \u2502 + \u00b7\u00b7\u00b7\u00b7rejected(compile(fiveKey()\u00b7as\u00b7never,\u00b7{\u00b7issues:\u00b7false\u00b7}\u00b7as\u00b7never)),\n2026-09-04T14:08:52.0045481Z Checked 454 files in 1173ms. No fixes applied.\n2026-09-04T14:08:52.0045775Z Found 1 error.\n2026-09-04T14:08:52.0046260Z Found 1 warning.",
+  "changed_files": [
+    "packages/bench/compile-cold-call.ts",
+    "packages/bench/compile-issues-decomposition.ts",
+    "packages/bench/compile-issues-modes.ts",
+    "packages/bench/error-construction-breakdown.ts",
+    "packages/bench/failure-result-shape.ts",
+    "packages/bench/memory/compiled-footprint.ts",
+    "packages/zod/src/v4/core/compile.ts",
+    "packages/zod/src/v4/core/errors.ts",
+    "packages/zod/src/v4/core/jit.ts",
+    "packages/zod/src/v4/core/schemas.ts",
+    "packages/zod/src/v4/core/tests/compile-differential.test.ts",
+    "packages/zod/src/v4/core/tests/compile.test.ts",
+    "packages/zod/src/v4/core/util.ts"
+  ],
+  "root_cause_label": "lint_format: packages/bench/memory/compiled-footprint.ts:26,50 & packages/bench/failure-result-shape.ts:23 — biome check fails due to unformatted lines in compiled-footprint.ts and unused parameter c in literalAccessors",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "PR adds packages/bench/memory/compiled-footprint.ts with unformatted lines 26 and 50 and packages/bench/failure-result-shape.ts with unused parameter c at line 23, failing biome check."
+  }
+}

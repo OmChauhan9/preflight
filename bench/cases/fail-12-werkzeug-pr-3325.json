@@ -1,0 +1,27 @@
+{
+  "id": "fail-12-werkzeug-pr-3325",
+  "status": "fail",
+  "repo": "pallets/werkzeug",
+  "pr": 3325,
+  "pr_url": "https://github.com/pallets/werkzeug/pull/3325",
+  "language": "python",
+  "base_sha": "15fc22b699ecacd04824092453c0cd2a8c4a3a67",
+  "head_sha": "a17d05a3d7f1fa48b10e343ae9a6c647ed199e78",
+  "workflow_file": ".github/workflows/tests.yaml",
+  "run_id": 38479725181,
+  "run_url": "https://github.com/pallets/werkzeug/actions/runs/38479725181",
+  "failing_job": "typing",
+  "failing_command": "uv run --locked --no-default-groups --group dev tox run -e typing",
+  "log_excerpt": "2026-10-13T22:44:08.8968585Z typing: commands[0]> mypy\n2026-10-13T22:44:09.8260300Z src/werkzeug/wrappers/response.py:368: error: Argument 1 to \"set_data\" of\n2026-10-13T22:44:09.8261031Z \"Response\" has incompatible type\n2026-10-13T22:44:09.8261723Z \"bytes | Iterable[bytes] | str | Iterable[str] | None\"; expected \"str | bytes\" \n2026-10-13T22:44:09.8262260Z [arg-type]\n2026-10-13T22:44:09.8262622Z             self.set_data(value)\n2026-10-13T22:44:09.8263238Z                           ^~~~~\n2026-10-13T22:44:09.9679599Z Found 1 error in 1 file (checked 54 source files)\n2026-10-13T22:44:09.9734953Z typing: exit 1 (1.08 seconds) /home/runner/work/werkzeug/werkzeug> mypy pid=2403\n2026-10-13T22:44:09.9745425Z   typing: FAIL code 1 (1.53=setup[0.46]+cmd[1.08] seconds)\n2026-10-13T22:44:09.9745802Z   evaluation failed :( (1.59 seconds)\n2026-10-13T22:44:10.0134486Z ##[error]Process completed with exit code 1.",
+  "changed_files": [
+    "CHANGES.rst",
+    "src/werkzeug/wrappers/response.py",
+    "tests/test_wrappers.py"
+  ],
+  "root_cause_label": "typecheck: src/werkzeug/wrappers/response.py:368 — Response.data setter widens value type to bytes | Iterable[bytes] | str | Iterable[str] | None while Response.set_data still expects str | bytes, causing mypy [arg-type] error",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "PR updates Response.data/set_data in src/werkzeug/wrappers/response.py leaving self.set_data(value) at line 368 with an incompatible argument type under mypy."
+  }
+}

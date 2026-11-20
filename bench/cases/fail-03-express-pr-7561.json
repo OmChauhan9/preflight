@@ -1,0 +1,25 @@
+{
+  "id": "fail-03-express-pr-7561",
+  "status": "fail",
+  "repo": "expressjs/express",
+  "pr": 7561,
+  "pr_url": "https://github.com/expressjs/express/pull/7561",
+  "language": "javascript",
+  "base_sha": "1c6f1b0fe4000977b9a7b4f34097e4d527dd9824",
+  "head_sha": "9e4f86a1cae0fb5f05bd7fd3a882a050006176f0",
+  "workflow_file": ".github/workflows/ci.yml",
+  "run_id": 40300229835,
+  "run_url": "https://github.com/expressjs/express/actions/runs/40300229835",
+  "failing_job": "Node.js 18 - ubuntu-latest",
+  "failing_command": "npm run test-ci",
+  "log_excerpt": "2026-10-26T09:31:59.2362774Z   7) app.router\n2026-10-26T09:31:59.2363228Z        routing settings of mounted sub-apps\n2026-10-26T09:31:59.2364132Z          when \"strict routing\" is enabled on the parent\n2026-10-26T09:31:59.2365068Z            should not reach a sub-app route that a parent guard on a sub-path does not cover:\n2026-10-26T09:31:59.2365972Z      Error: expected 404 \"Not Found\", got 200 \"OK\"\n2026-10-26T09:31:59.2366847Z       at Test.<anonymous> (test/app.router.js:1331:18)\n2026-10-26T09:31:59.2367647Z       at Test.assert (node_modules/supertest/lib/test.js:172:8)\n2026-10-26T09:31:59.2368522Z       at Server.localAssert (node_modules/supertest/lib/test.js:120:14)\n2026-10-26T09:31:59.2369309Z       at Object.onceWrapper (node:events:631:28)\n2026-10-26T09:31:59.2370113Z       at Server.emit (node:events:517:28)\n2026-10-26T09:31:59.2370724Z       at emitCloseNT (node:net:2221:8)\n2026-10-26T09:31:59.2371591Z       at process.processTicksAndRejections (node:internal/process/task_queues:81:21)\n2026-10-26T09:31:59.2380516Z \n2026-10-26T09:31:59.2380700Z   8) app.router\n2026-10-26T09:31:59.2381155Z        routing settings of mounted sub-apps\n2026-10-26T09:31:59.2381789Z          when \"strict routing\" is enabled on the parent\n2026-10-26T09:31:59.2382742Z            should reject mounting the same sub-app under parents with conflicting settings:\n2026-10-26T09:31:59.2383852Z      AssertionError [ERR_ASSERTION]: Missing expected exception.\n2026-10-26T09:31:59.2384665Z       at Context.<anonymous> (test/app.router.js:1368:18)\n2026-10-26T09:31:59.2385456Z       at process.processImmediate (node:internal/timers:476:21)",
+  "changed_files": [
+    "test/app.router.js"
+  ],
+  "root_cause_label": "unit_test: test/app.router.js:1284,1331,1368 — adds 'routing settings of mounted sub-apps' test suite expecting sub-app router inheritance of 'case sensitive routing' and 'strict routing' without implementing the behavior in lib/application.js",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "PR modifies only test/app.router.js to add sub-app routing setting inheritance assertions, which fail with expected 404 got 200 and Missing expected exception at lines 1284, 1331, and 1368."
+  }
+}

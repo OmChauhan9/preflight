@@ -1,0 +1,27 @@
+{
+  "id": "pass-06-werkzeug-pr-3345",
+  "status": "pass",
+  "repo": "pallets/werkzeug",
+  "pr": 3345,
+  "pr_url": "https://github.com/pallets/werkzeug/pull/3345",
+  "language": "python",
+  "base_sha": "284d15b0f1f9659da5882c1e62c40c9ce77cd5fd",
+  "head_sha": "e7090bf4a8ee0f00c55e5d3f85f11890be4c8f30",
+  "workflow_file": ".github/workflows/tests.yaml",
+  "run_id": 42664383226,
+  "run_url": "https://github.com/pallets/werkzeug/actions/runs/42664383226",
+  "failing_job": null,
+  "failing_command": null,
+  "log_excerpt": null,
+  "changed_files": [
+    "CHANGES.rst",
+    "src/werkzeug/test.py",
+    "tests/test_test.py"
+  ],
+  "root_cause_label": "passing: simplify stream_encode_multipart in src/werkzeug/test.py to always write multipart test data to BytesIO instead of switching to TemporaryFile",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "CI workflow succeeded on head_sha; verified code diff."
+  }
+}

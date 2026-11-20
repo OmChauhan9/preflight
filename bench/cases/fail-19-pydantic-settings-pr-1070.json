@@ -1,0 +1,27 @@
+{
+  "id": "fail-19-pydantic-settings-pr-1070",
+  "status": "fail",
+  "repo": "pydantic/pydantic-settings",
+  "pr": 1070,
+  "pr_url": "https://github.com/pydantic/pydantic-settings/pull/1070",
+  "language": "python",
+  "base_sha": "8aa92163771b9b91c67adb95889f16472fe36119",
+  "head_sha": "44ca0fc758704b9e7cd698dd4e8f78bf8ea961e4",
+  "workflow_file": ".github/workflows/ci.yml",
+  "run_id": 42205300163,
+  "run_url": "https://github.com/pydantic/pydantic-settings/actions/runs/42205300163",
+  "failing_job": "test py3.11 on windows-latest",
+  "failing_command": "make test",
+  "log_excerpt": "2026-11-06T10:47:51.4564672Z >       assert Settings().model_dump() == {\n2026-11-06T10:47:51.4564948Z             'app_key': None,\n2026-11-06T10:47:51.4565227Z             'db': {'user': 'user', 'passwd': 'secret2'},\n2026-11-06T10:47:51.4565516Z         }\n2026-11-06T10:47:51.4565869Z E       AssertionError: assert {'app_key': N...asswd': None}} == {'app_key': N...': 'secret2'}}\n2026-11-06T10:47:51.4567288Z E         Differing items:\n2026-11-06T10:47:51.4567669Z E         {'db': {'user': 'user', 'passwd': None}} != {'db': {'user': 'user', 'passwd': 'secret2'}}\n2026-11-06T10:47:51.4572435Z tests\\test_source_nested_secrets.py:475: AssertionError\n2026-11-06T10:47:51.4572837Z _____________________ test_hidden_entries_are_not_loaded ______________________\n2026-11-06T10:47:51.4574060Z     def test_hidden_entries_are_not_loaded(tmp_path):\n2026-11-06T10:47:51.4574345Z         _kubernetes_volume(tmp_path)\n2026-11-06T10:47:51.4574625Z         tmp_path.joinpath('.hidden').write_text('x')\n2026-11-06T10:47:51.4575301Z >       assert NestedSecretsSettingsSource.load_secrets(tmp_path.resolve()) == {f'db{sep}passwd': 'secret2'}\n2026-11-06T10:47:51.4575818Z E       AssertionError: assert {} == {'db\\\\passwd': 'secret2'}\n2026-11-06T10:47:51.4578288Z tests\\test_source_nested_secrets.py:511: AssertionError",
+  "changed_files": [
+    "docs/index.md",
+    "pydantic_settings/sources/providers/nested_secrets.py",
+    "tests/test_source_nested_secrets.py"
+  ],
+  "root_cause_label": "unit_test: tests/test_source_nested_secrets.py:454-460,475,511 & pydantic_settings/sources/providers/nested_secrets.py — _kubernetes_volume creates chained directory symlinks (db -> ..data/db) without target_is_directory=True, causing Windows Path.is_dir() to return False during _iter_secret_files walk",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "PR adds _kubernetes_volume in tests/test_source_nested_secrets.py creating symlink db -> ..data/db without target_is_directory=True, causing test_second_link_to_subdir_is_loaded and test_hidden_entries_are_not_loaded to load no secrets on Windows."
+  }
+}

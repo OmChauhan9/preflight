@@ -1,0 +1,26 @@
+{
+  "id": "pass-01-express-pr-7578",
+  "status": "pass",
+  "repo": "expressjs/express",
+  "pr": 7578,
+  "pr_url": "https://github.com/expressjs/express/pull/7578",
+  "language": "javascript",
+  "base_sha": "1c6f1b0fe4000977b9a7b4f34097e4d527dd9824",
+  "head_sha": "12cceb843d2a14f5954042453ec54640a7e6056d",
+  "workflow_file": ".github/workflows/ci.yml",
+  "run_id": 41311401799,
+  "run_url": "https://github.com/expressjs/express/actions/runs/41311401799",
+  "failing_job": null,
+  "failing_command": null,
+  "log_excerpt": null,
+  "changed_files": [
+    "lib/response.js",
+    "test/res.links.js"
+  ],
+  "root_cause_label": "passing: early-return in res.links() in lib/response.js when given null/empty object so existing Link header is not corrupted, with unit tests in test/res.links.js",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "CI workflow succeeded on head_sha; verified code diff."
+  }
+}

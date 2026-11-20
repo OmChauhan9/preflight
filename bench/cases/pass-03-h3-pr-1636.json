@@ -1,0 +1,42 @@
+{
+  "id": "pass-03-h3-pr-1636",
+  "status": "pass",
+  "repo": "unjs/h3",
+  "pr": 1636,
+  "pr_url": "https://github.com/h3js/h3/pull/1636",
+  "language": "typescript",
+  "base_sha": "f0e17808ac2439b6434bb10609a961067f4d555b",
+  "head_sha": "4bb6883c1844042ec6fc3f633940288e22a6b056",
+  "workflow_file": ".github/workflows/ci.yml",
+  "run_id": 42375854118,
+  "run_url": "https://github.com/h3js/h3/actions/runs/42375854118",
+  "failing_job": null,
+  "failing_command": null,
+  "log_excerpt": null,
+  "changed_files": [
+    "src/_deprecated.ts",
+    "src/error.ts",
+    "src/event.ts",
+    "src/handler.ts",
+    "src/types/h3.ts",
+    "src/types/handler.ts",
+    "src/utils/base.ts",
+    "src/utils/body.ts",
+    "src/utils/cookie.ts",
+    "src/utils/internal/iron-crypto.ts",
+    "src/utils/internal/iterable.ts",
+    "src/utils/internal/standard-schema.ts",
+    "src/utils/internal/validate.ts",
+    "src/utils/json-rpc.ts",
+    "src/utils/request.ts",
+    "src/utils/response.ts",
+    "src/utils/route.ts",
+    "src/utils/ws.ts"
+  ],
+  "root_cause_label": "passing: standardize generic type parameter naming and eliminate as any casts in defineValidatedHandler across src/handler.ts and related type definitions",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "CI workflow succeeded on head_sha; verified code diff."
+  }
+}
