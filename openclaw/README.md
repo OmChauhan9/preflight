@@ -69,7 +69,7 @@ ln -sfn "$(pwd)/skills/preflight" ~/.openclaw/skills/preflight
   export CEREBRAS_API_KEY="<your-cerebras-api-key>"
   ```
 
-Register the hackathon trial model (`cerebras/moonshotai-kimi-k3.1-pro-trial`) via `openclaw config patch --stdin` (no raw API key field in config; verify model metadata at kickoff with `openclaw models list --provider cerebras`):
+Register the hackathon trial model (`cerebras/moonshotai-kimi-k3.1-pro-trial`) via `openclaw config patch --stdin` (no raw API key field in config):
 
 ```bash
 ~/.openclaw/bin/openclaw config patch --stdin <<'EOF'
@@ -87,7 +87,7 @@ Register the hackathon trial model (`cerebras/moonshotai-kimi-k3.1-pro-trial`) v
             "reasoning": false,
             "input": ["text"],
             "contextWindow": 131072,
-            "maxTokens": 8192
+            "maxTokens": 1500
           }
         ]
       }
@@ -104,6 +104,8 @@ Register the hackathon trial model (`cerebras/moonshotai-kimi-k3.1-pro-trial`) v
 EOF
 ```
 
+> **Note (UNCONFIRMED trial parameters):** `"reasoning": false`, `"contextWindow": 131072`, and `"maxTokens": 1500` above are **UNCONFIRMED placeholders to verify at hackathon kickoff** via `openclaw models list --provider cerebras` and live API testing. Keeping `"maxTokens"` low (e.g., `1500`–`4096`) avoids unnecessary pre-charging against Cerebras's 100K TPM trial bucket.
+
 Verify the registered model:
 
 ```bash
@@ -115,11 +117,24 @@ Verify the registered model:
 
 ## 4. Verify the Phase 0 Stub (One-Shot Local Run)
 
-Run a single local OpenClaw agent turn from the repository root:
+First confirm that `chmod +x dist/cli.js` (or `npm link`) has made `preflight` executable on `PATH` and that OpenClaw reports the skill as `✓ Ready`:
+
+```bash
+~/.openclaw/bin/openclaw skills info preflight
+```
+
+Then run a single local OpenClaw agent turn from the repository root:
 
 ```bash
 ~/.openclaw/bin/openclaw agent --local --agent main \
   --message "Use the preflight skill to run \`preflight check\` in the current directory and display its exact stdout/stderr output verbatim."
+```
+
+OpenClaw `2026.11.5` also supports direct one-shot execution via `openclaw agent exec` alongside `openclaw agent --local`:
+
+```bash
+~/.openclaw/bin/openclaw agent exec --cwd . \
+  "Use the preflight skill to run \`preflight check\` in the current directory and display its exact stdout/stderr output verbatim."
 ```
 
 **Expected result (Phase 0):** OpenClaw invokes `preflight check` via `exec` and displays `not implemented` (exit code `0`).
