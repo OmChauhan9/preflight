@@ -72,14 +72,14 @@ Deterministic, zero-LLM local context collection:
 2. **Import Graph & Affected Tests:** Parses local JS/TS (`import`/`require`) and Python (`import`/`from ... import`) dependencies to identify test files that directly or transitively import modified source modules.
 3. **Workflow Command Extraction:** Parses `.github/workflows/*.yml` (and `.yaml`) files to extract job names, working directories, matrix hints, and `run:` shell steps (e.g., `npm test`, `npx vitest run`, `npm run typecheck`, `npm run lint`, `pytest`, `ruff check`, `mypy`).
 4. **Optional Recent CI Log:** If provided or available from recent failure state, attaches a bounded failure log excerpt.
-5. **Context Budgeting:** Priority-trims gathered context to guarantee the prompt stays within **<= 20,000 input tokens** (see Section 6).
+5. **Context Budgeting:** Priority-trims gathered context to guarantee the prompt stays within **<= 20,000 input tokens** using the 5-tier priority order defined in `BRIEF.md`: (1) `git diff`, (2) CI commands, (3) changed files' tests, (4) changed files, and (5) neighbors — trimmed in reverse priority order (dropping/truncating neighbors first, then full changed files, etc.; see Section 6).
 
 ### Stage 2: Think (Single Kimi K3.1 Pro Call on Cerebras)
 
 A single inference call to `moonshotai-kimi-k3.1-pro-trial` on `https://api.cerebras.ai/v1/chat/completions`:
 
 - **Token Budget:** `<= 20,000` input tokens; `max_completion_tokens` capped at **`~1,500`** (preventing pre-charge exhaustion of the 100K tokens/min quota).
-- **Reasoning Mode:** Off by default so latency stays ultra-low and completions are not truncated by hidden reasoning tokens. Can be enabled explicitly with `--think`.
+- **Reasoning Mode:** Intended off by default (and enabled explicitly via `--think`) so latency stays ultra-low and completions are not truncated by reasoning tokens. Because standard Cerebras `kimi-k3.1-pro` defaults to `reasoning_effort: "max"` when omitted, the exact `reasoning_effort` parameter values (e.g., `"none"` vs `"low"` vs omitted) for `moonshotai-kimi-k3.1-pro-trial` are **UNCONFIRMED and must be verified at hackathon kickoff**. When `reasoning_format` is passed, use `reasoning_format: "parsed"` (not `"hidden"`, which Kimi K3.1 Pro does not support) so any thinking tokens are separated into `choices[0].message.reasoning`.
 - **Plain-Text JSON Contract:** Preflight does not depend on provider-specific tool calling (`tools`) or structured-output modes (`response_format: { type: "json_schema" }`). Instead, the system prompt specifies a strict plain-text JSON contract:
 
 ```json
@@ -144,7 +144,8 @@ Fast post-failure diagnosis and verified patch suggestion:
 
 ### 3.1 CLI (`preflight`)
 
-Built on TypeScript + Node 22 (`>=22`).
+Built on TypeScript + Node 22 (`>=22`).  
+*Runtime compatibility note:* Preflight CLI targets Node `>=22` (CI tested on Node 22), while the OpenClaw harness requires Node `24.16.0+` or `26.1.0+` locally.
 
 | Command | Description |
 | :--- | :--- |
@@ -282,9 +283,9 @@ Each file in `bench/cases/<id>.json` conforms to:
 | **Rate Limits** | **100 requests / minute** and **100,000 tokens / minute** |
 | **Concurrency** | **Single-flight (`concurrency = 1`)** per process via an internal mutex queue |
 | **Pre-Charged Completion Quota** | Cerebras pre-charges the full `max_completion_tokens` value against the 100K tok/min limit when a request starts. Keep `max_completion_tokens` at **`~1,500`** (`<= 2,000`). |
-| **Input Context Budget** | **`<= 20,000` input tokens** per call via deterministic priority trimming |
+| **Input Context Budget** | **`<= 20,000` input tokens** per call via deterministic priority trimming in 5-item order: (1) `git diff`, (2) CI commands, (3) changed files' tests, (4) changed files, (5) neighbors — trimmed in reverse priority order to stay `<= ~20K` input tokens. |
 | **HTTP 429 Handling** | Honor `Retry-After` header when present; otherwise bounded exponential backoff with random jitter |
-| **Reasoning Mode** | Off by default (`reasoning_effort` omitted). Exact `reasoning_effort` values supported by `moonshotai-kimi-k3.1-pro-trial` to be verified at kickoff (Sat Nov 21, 10:00 AM PT) for the `--think` flag. |
+| **Reasoning Mode** | Per `BRIEF.md`, reasoning is intended off by default and enabled via `--think`. Because standard Cerebras `kimi-k3.1-pro` defaults to `reasoning_effort: "max"`, the exact `reasoning_effort` parameter values (e.g., `"none"` vs `"low"` vs omitted) for `moonshotai-kimi-k3.1-pro-trial` are **UNCONFIRMED and must be verified at hackathon kickoff** (Sat Nov 21, 10:00 AM PT). Pass `reasoning_format: "parsed"` (not `"hidden"`, which Kimi K3.1 Pro does not support). |
 | **Structured Outputs / Tool Calling** | Do **not** depend on API `tools` or `response_format: json_schema`. Use plain-text JSON prompts + local schema validation + 1 retry. |
 | **SSE Streaming Caveat** | Cerebras SSE streams can pack multiple tokens into a single SSE chunk; always use `usage` + `time_info` from the API response for token/s calculation rather than counting SSE events. |
 | **GPU Comparison Provider** | Moonshot Kimi API (`https://api.moonshot.ai/v1`, `MOONSHOT_API_KEY`, configurable `MOONSHOT_MODEL`). Measures client wall-clock time since `time_info` is Cerebras-specific. |
@@ -293,23 +294,35 @@ Each file in `bench/cases/<id>.json` conforms to:
 
 ## 7. Hackathon Rules, Submission Requirements & Storyboard
 
-### 7.1 Time Gate & Phase 0 Boundary
+### 7.1 Hackathon Window, Time Gate & Phase 0 Boundary
 
-- **Kickoff Time Gate:** **Saturday, Nov 21, 2026 at 10:00 AM PT**.
-- **Phase 0 Allowed Work (Before Kickoff):**
+- **Hackathon Coding Window:** **Saturday, Nov 21, 2026 at 10:00 AM PT to Sunday, Nov 22, 2026 at 10:00 AM PT**.
+- **Submission Deadline:** All submission posts must be published by **Sunday, Nov 22, 2026 at 10:00 AM PT**.
+- **Trial Model Access Expiration:** Access to `moonshotai-kimi-k3.1-pro-trial` ends **Monday, Nov 23, 2026 at 10:00 AM PT**.
+- **License:** MIT License (approved by user).
+- **Phase 0 Allowed Work (Before Sat Nov 21, 10:00 AM PT):**
   - Architecture and specification docs (`docs/SPEC.md`, `docs/DECISIONS.md`, `docs/notes/*.md`)
   - Empty project scaffolding, build/lint/test setup, CI workflow, stub CLI printing `not implemented`, and thin HTTP API client wrappers (`src/clients/*`)
   - Benchmark dataset curation and local reproduction verification (`bench/cases/*.json`, `bench/README.md`)
 - **Forbidden Before Kickoff:** Writing any Gather, Think, Verify, or Explain business logic before Sat Nov 21, 10:00 AM PT.
 
-### 7.2 Submission Requirements
+### 7.2 Submission Requirements & Prizes
 
-1. **X (Twitter) Post:**
-   - Public post featuring a **<= 60-second demo video**.
-   - Tag/mention required organizers and partners (`@CerebrasSystems`, `@Kimi_Moonshot`, `@OpenClawAI` / official hackathon hashtag).
-   - Include link to the public GitHub repository.
-2. **Optional Reddit Cross-Post:**
-   - Share the demo and benchmark write-up on relevant developer communities (e.g., `r/LocalLLaMA`) if time permits.
+1. **X (Twitter) Post (Required):**
+   - Must be published by **Sun Nov 22, 2026 at 10:00 AM PT**.
+   - Public post featuring a demo video of **60 seconds or less**.
+   - Must tag **`@Cerebras`** and **`@Kimi_Moonshot`** and include hashtag **`#KimiOnCerebras`**.
+   - Must include:
+     - Project name (**Preflight**)
+     - Team handles
+     - 2–4 sentence project description
+     - Public GitHub repository link: `https://github.com/OmChauhan9/preflight`
+2. **Reddit Post (Optional):**
+   - Cross-post to **`r/cerebras`** with flair **`"Kimi K3.1 Pro Hackathon"`** by **Sun Nov 22, 2026 at 10:00 AM PT**.
+3. **Prizes & Engagement Rules:**
+   - **Audience Vote:** Top 3 projects by X impressions + Top 1 project on Reddit (`r/cerebras`).
+   - **Fastest-TPS Prompt Prize:** Highest tokens/sec showcase on Cerebras.
+   - **Fair Play:** Organic engagement only (no bots, paid promotion, or artificial impression boosting).
 
 ### 7.3 60-Second Demo Video Storyboard
 
