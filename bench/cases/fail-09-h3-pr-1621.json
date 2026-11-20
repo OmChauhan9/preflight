@@ -18,10 +18,10 @@
     "test/cache.test.ts",
     "test/rules/cache.test.ts"
   ],
-  "root_cause_label": "unit_test: src/utils/internal/staged-headers.ts:74-79,101 & test/cache.test.ts:222, test/rules/cache.test.ts:374,389 — merging handler Server-Timing into cached Response causes cached hits to replay handler Server-Timing metrics ('handler;dur=2')",
+  "root_cause_label": "unit_test: src/utils/internal/staged-headers.ts:74-79,101 & test/cache.test.ts:222, test/rules/cache.test.ts:374,389 — PR updates staged-headers.ts to merge/order Server-Timing and adds 4 tests expecting cache hits not to replay handler Server-Timing, but cached responses still retain and replay 'handler;dur=2'",
   "label_verified": {
     "checked_against_log": true,
     "checked_against_diff": true,
-    "notes": "PR modifies mergeStagedHeaders/withStagedHeaders in src/utils/internal/staged-headers.ts to append server-timing, causing cached responses to retain and replay handler Server-Timing entries on cache HIT in 4 new tests."
+    "notes": "PR updates mergeStagedHeaders/withStagedHeaders in src/utils/internal/staged-headers.ts and adds 4 tests in test/cache.test.ts and test/rules/cache.test.ts expecting cache HITs not to replay handler Server-Timing, without stripping server-timing from cached entries."
   }
 }

@@ -18,10 +18,10 @@
     "package.json",
     "test/app.listRoutes.js"
   ],
-  "root_cause_label": "unit_test: lib/application.js & test/app.listRoutes.js — app.listRoutes() delegates to this.router.listRoutes() requiring router@^2.3.0 (unpublished, or mounted_app.router getter not recognized by Router#listRoutes), causing 9 test failures in test/app.listRoutes.js",
+  "root_cause_label": "unit_test: lib/application.js:240-244 & test/app.listRoutes.js — Router#listRoutes() does not read the mounted_app.router getter defined in app.use (lib/application.js line 242 stays uncovered), leaving mounted sub-application entries unexposed and failing 9 tests in test/app.listRoutes.js",
   "label_verified": {
     "checked_against_log": true,
     "checked_against_diff": true,
-    "notes": "PR adds app.listRoutes() in lib/application.js, bumps router to ^2.3.0 in package.json, and adds test/app.listRoutes.js where 9 tests fail with TypeError/AssertionError on sub-application router entries."
+    "notes": "PR defines a mounted_app.router getter in lib/application.js (line 242, reported uncovered in CI) and adds test/app.listRoutes.js where 9 sub-application tests fail because Router#listRoutes() does not inspect mounted_app.router."
   }
 }
