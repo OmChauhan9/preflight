@@ -90,16 +90,19 @@ The Cerebras trial endpoint enforces a **100,000 tokens/minute** quota and **pre
 
 1. **Input Token Cap (`<= 20,000` tokens):**
    - `Gather` enforces a hard budget of `~20,000` input tokens per Kimi request.
-   - Context is assembled and trimmed in deterministic priority order:
-     1. Parsed `.github/workflows/*.yml` jobs and commands (highest priority — small and required for allowlist alignment)
-     2. List of changed files and import-graph-matched test files
-     3. Recent CI failure log excerpt (when running `explain` or when a log is attached, capped to the failing command + traceback lines)
-     4. Unified `git diff` hunks (trimmed symmetrically per file if the diff exceeds remaining token budget, prioritizing modified source and test files over lockfiles or generated artifacts)
+   - Context is assembled and trimmed in deterministic 5-tier priority order per `BRIEF.md`:
+     1. `(1) git diff` (unified diff hunks for modified files)
+     2. `(2) CI commands` (parsed `.github/workflows/*.yml` jobs and commands)
+     3. `(3) changed files' tests` (test files importing changed modules via the static import graph)
+     4. `(4) changed files` (full or surrounding source context of modified files)
+     5. `(5) neighbors` (adjacent modules in the local import graph)
+   - Trimming proceeds in **reverse priority order** (dropping `(5) neighbors` first, then `(4) changed files`, `(3) changed files' tests`, etc.) to stay within `<= ~20,000` input tokens. (When running `preflight explain`, the failing CI log excerpt is included alongside the high-priority diff and workflow commands.)
 2. **Low `max_completion_tokens` (`~1,500`):**
    - Requests explicitly set `max_completion_tokens: 1500` (never leaving it unset or defaulting to 8K–32K) so Cerebras pre-charging consumes only ~1.5% of the per-minute token budget per call.
 3. **Reasoning Off by Default (`--think` Opt-In):**
-   - By default, `reasoning_effort` is omitted so Kimi emits the JSON response directly with minimal latency and token usage.
-   - Users can opt into reasoning via the `--think` CLI flag (using the `reasoning_effort` value confirmed for `moonshotai-kimi-k3.1-pro-trial` at kickoff).
+   - Per `BRIEF.md`, reasoning is intended off by default (for low latency and compact JSON output) and enabled explicitly via the `--think` CLI flag.
+   - Because standard Cerebras `kimi-k3.1-pro` defaults to `reasoning_effort: "max"` when omitted, the exact `reasoning_effort` parameter values (e.g., `"none"` vs `"low"` vs omitted) for `moonshotai-kimi-k3.1-pro-trial` are **UNCONFIRMED and must be verified at hackathon kickoff** (Sat Nov 21, 10:00 AM PT).
+   - When `reasoning_format` is specified on Cerebras, pass `reasoning_format: "parsed"` (not `"hidden"`, which Kimi K3.1 Pro does not support) so any reasoning tokens are separated into `choices[0].message.reasoning` rather than polluting `choices[0].message.content`.
 
 ### Consequences
 
