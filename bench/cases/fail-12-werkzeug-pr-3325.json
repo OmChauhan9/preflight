@@ -18,10 +18,10 @@
     "src/werkzeug/wrappers/response.py",
     "tests/test_wrappers.py"
   ],
-  "root_cause_label": "typecheck: src/werkzeug/wrappers/response.py:368 — Response.data setter widens value type to bytes | Iterable[bytes] | str | Iterable[str] | None while Response.set_data still expects str | bytes, causing mypy [arg-type] error",
+  "root_cause_label": "typecheck: src/werkzeug/wrappers/response.py:368 — calling self.set_data(value) with value typed as bytes | Iterable[bytes] | str | Iterable[str] | None while Response.set_data still expects str | bytes causes mypy [arg-type] error",
   "label_verified": {
     "checked_against_log": true,
     "checked_against_diff": true,
-    "notes": "PR updates Response.data/set_data in src/werkzeug/wrappers/response.py leaving self.set_data(value) at line 368 with an incompatible argument type under mypy."
+    "notes": "PR updates Response.response and set_data handling in src/werkzeug/wrappers/response.py, leaving self.set_data(value) at line 368 passing bytes | Iterable[bytes] | str | Iterable[str] | None to set_data (typed as str | bytes)."
   }
 }

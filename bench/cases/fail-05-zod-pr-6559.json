@@ -28,10 +28,10 @@
     "packages/zod/src/v4/core/tests/compile.test.ts",
     "packages/zod/src/v4/core/util.ts"
   ],
-  "root_cause_label": "lint_format: packages/bench/memory/compiled-footprint.ts:26,50 & packages/bench/failure-result-shape.ts:23 — biome check fails due to unformatted lines in compiled-footprint.ts and unused parameter c in literalAccessors",
+  "root_cause_label": "lint_format: packages/bench/memory/compiled-footprint.ts:26,50 & packages/bench/failure-result-shape.ts:23 — biome check fails with a formatting error on long lines in compiled-footprint.ts (plus an unused-parameter warning on c in literalAccessors)",
   "label_verified": {
     "checked_against_log": true,
     "checked_against_diff": true,
-    "notes": "PR adds packages/bench/memory/compiled-footprint.ts with unformatted lines 26 and 50 and packages/bench/failure-result-shape.ts with unused parameter c at line 23, failing biome check."
+    "notes": "PR adds packages/bench/memory/compiled-footprint.ts with unformatted lines 26 and 50 (1 format error) and packages/bench/failure-result-shape.ts with unused parameter c at line 23 (1 lint warning), causing biome check to exit 1."
   }
 }

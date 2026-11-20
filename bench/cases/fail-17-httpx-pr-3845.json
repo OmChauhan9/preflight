@@ -21,6 +21,6 @@
   "label_verified": {
     "checked_against_log": true,
     "checked_against_diff": true,
-    "notes": "PR adds test_ipv6_host_and_netloc_agree in tests/models/test_url.py with a 90-character single-line httpx.URL(...) call at line 915 that fails ruff format --diff in scripts/check."
+    "notes": "PR adds test_ipv6_host_and_netloc_agree in tests/models/test_url.py with an 89-character single-line httpx.URL(...) call at line 915 that fails ruff format --diff in scripts/check."
   }
 }
