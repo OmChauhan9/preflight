@@ -65,7 +65,7 @@ OpenClaw discovers `SKILL.md` files in the following precedence order (highest t
 4. `~/.openclaw/skills/<skill-name>/SKILL.md` (Managed/global OpenClaw skills)
 
 ### Exact `SKILL.md` Schema for `preflight`
-To register `preflight` as an OpenClaw skill, create `~/.openclaw/skills/preflight/SKILL.md` (or `<workspace>/skills/preflight/SKILL.md`) ([https://docs.openclaw.ai/tools/skills](https://docs.openclaw.ai/tools/skills)):
+To register `preflight` as an OpenClaw skill, create `~/.openclaw/skills/preflight/SKILL.md` (or `<workspace>/skills/preflight/SKILL.md`) and validate frontmatter placement (`allowed-tools`, `metadata.openclaw`) with `openclaw skills check` ([https://docs.openclaw.ai/tools/skills](https://docs.openclaw.ai/tools/skills)):
 
 ```markdown
 ---
@@ -92,13 +92,14 @@ When the user asks to run Preflight, check a branch before push, or verify wheth
    ```bash
    preflight check --json
    ```
-2. Parse the JSON response fields:
-   - `verdict` (`PASS`, `FAIL`, or `SKIPPED`)
+   *(Note: During Phase 0 stub verification, `preflight check` outputs `not implemented` with exit code 0.)*
+2. In Phase 1/2, parse the JSON response fields (matching `docs/SPEC.md`):
+   - `status` (`"passed"`, `"failed"`, `"timed_out"`, or `"refused"`)
    - `think` (`likely_failures`, `affected_jobs`, `commands`, `notes`)
-   - `verify` (per-command `command`, `exit_code`, `duration_ms`, `stdout`, `stderr`)
-   - `speed` (`provider`, `model`, `prompt_tokens`, `completion_tokens`, `tokens_per_sec`, `time_info`, `wall_time_ms`)
+   - `verify` (per-command `command`, `status` [`"passed" | "failed" | "timed_out" | "refused"`], `exit_code`, `duration_ms`, `output`)
+   - `telemetry` (`provider`, `model`, `prompt_tokens`, `completion_tokens`, `tokens_per_sec`, `time_info`, `wall_time_ms` split into `gather`, `think`, `verify`)
 3. Present a concise summary showing:
-   - Which real commands passed or failed (by exit code — never claim "CI will pass").
+   - Which real commands passed, failed, timed out, or were refused (by exit code — never claim "CI will pass").
    - The Cerebras Speed panel (`prompt_tokens`, `completion_tokens`, `tok/s`, `queue_time`, `prompt_time`, `completion_time`, `total_time`, and `gather`/`think`/`verify` wall times).
 ```
 
@@ -149,7 +150,7 @@ OpenClaw supports two ways to override the active model to `cerebras/moonshotai-
                "reasoning": false,
                "input": ["text"],
                "contextWindow": 131072,
-               "maxTokens": 8192
+               "maxTokens": 1500
              }
            ]
          }
@@ -164,6 +165,10 @@ OpenClaw supports two ways to override the active model to `cerebras/moonshotai-
      }
    }
    ```
+   - **UNCONFIRMED / verify at kickoff (`reasoning`, `contextWindow`, `maxTokens` for `moonshotai-kimi-k3.1-pro-trial`):**
+     - The exact `contextWindow`, `maxTokens`, and `reasoning` manifest attributes for `moonshotai-kimi-k3.1-pro-trial` are **UNCONFIRMED / verify at kickoff** via `openclaw models list --provider cerebras` and `GET https://api.cerebras.ai/v1/models` ([https://docs.openclaw.ai/providers/cerebras.md](https://docs.openclaw.ai/providers/cerebras.md), [https://inference-docs.cerebras.ai/api-reference/chat-completions](https://inference-docs.cerebras.ai/api-reference/chat-completions)).
+     - Note that native Kimi K3.1 Pro supports up to a `1,048,576`-token context window on Moonshot ([https://platform.moonshot.ai/docs/pricing/chat](https://platform.moonshot.ai/docs/pricing/chat)), while Cerebras trial context limits must be verified at kickoff.
+     - **Critical TPM Pre-Charge Warning:** Keep `maxTokens` low (e.g., `1500`, matching Preflight's `~1,500` `max_completion_tokens` budget) rather than `8192+`, because Cerebras pre-charges `prompt_tokens + max_completion_tokens` against the hackathon trial's `100,000 tok/min` (100K TPM) budget (per official Hackathon FAQ / `BRIEF.md` and [https://inference-docs.cerebras.ai/support/rate-limits](https://inference-docs.cerebras.ai/support/rate-limits)).
 2. **CLI model switch & verification:**
    ```bash
    openclaw models set cerebras/moonshotai-kimi-k3.1-pro-trial
@@ -180,13 +185,13 @@ OpenClaw supports two ways to override the active model to `cerebras/moonshotai-
 1. **Install OpenClaw (after user approval)** using `curl -fsSL https://openclaw.ai/install.sh | bash` and install `@openclaw/cerebras-provider` via `openclaw plugins install @openclaw/cerebras-provider` ([https://openclaw.ai/install](https://openclaw.ai/install), [https://docs.openclaw.ai/providers/cerebras.md](https://docs.openclaw.ai/providers/cerebras.md)).
 2. **Register the `preflight` Skill (`SKILL.md`)** in `~/.openclaw/skills/preflight/SKILL.md` (and commit a copy in the repo at `.agents/skills/preflight/SKILL.md` so project-level discovery also works automatically) ([https://docs.openclaw.ai/tools/skills](https://docs.openclaw.ai/tools/skills)).
 3. **Verify the Phase 0 CLI stub via OpenClaw:**
-   Run a single local agent turn invoking the Phase 0 `preflight check` stub:
+   Run a single local agent turn invoking the Phase 0 `preflight check` stub (which outputs `not implemented`):
    ```bash
-   openclaw agent --local --agent main --message "Run preflight check --json in the current directory and display the output."
+   openclaw agent --local --agent main --message "Run preflight check in the current directory and display the output."
    ```
    ([https://docs.openclaw.ai/cli/agent](https://docs.openclaw.ai/cli/agent))
 
 ### Phase 2 Wiring (During Hackathon Build Window)
 1. **Keep the architecture thin:** OpenClaw acts as the conversational agent trigger, while `preflight check --json` performs the deterministic Gather -> single-flight Cerebras Kimi Think -> allowlisted Verify pipeline.
-2. **Why this avoids rate-limit waste:** Routing the inner Think call directly inside `preflight` (rather than having OpenClaw do multi-turn tool-calling reasoning loops) preserves the 100 req/min and 100K tok/min Cerebras trial budget and captures exact `time_info` telemetry (`queue_time`, `prompt_time`, `completion_time`, `total_time`) directly from the Cerebras HTTP response ([https://inference-docs.cerebras.ai/api-reference/chat-completions](https://inference-docs.cerebras.ai/api-reference/chat-completions)).
+2. **Why this avoids rate-limit waste:** Routing the inner Think call directly inside `preflight` (rather than having OpenClaw do multi-turn tool-calling reasoning loops) preserves the `100 req/min` and `100K tok/min` Cerebras hackathon trial budget (specified in the official Hackathon FAQ / `BRIEF.md`, with pre-charge behavior documented at [https://inference-docs.cerebras.ai/support/rate-limits](https://inference-docs.cerebras.ai/support/rate-limits)) and captures exact `time_info` telemetry (`queue_time`, `prompt_time`, `completion_time`, `total_time`) directly from the Cerebras HTTP response ([https://inference-docs.cerebras.ai/api-reference/chat-completions](https://inference-docs.cerebras.ai/api-reference/chat-completions)).
 3. **Fallback path:** If the OpenClaw Gateway daemon is slow or unavailable during live recording, `openclaw agent --local --agent main --message "Run preflight check"` executes directly via the embedded local runner ([https://docs.openclaw.ai/cli/agent](https://docs.openclaw.ai/cli/agent)).
