@@ -1,0 +1,26 @@
+{
+  "id": "pass-10-pydantic-settings-pr-1163",
+  "status": "pass",
+  "repo": "pydantic/pydantic-settings",
+  "pr": 1163,
+  "pr_url": "https://github.com/pydantic/pydantic-settings/pull/1163",
+  "language": "python",
+  "base_sha": "fe7498bee6b7c406111b3c640252fe4927b4ed60",
+  "head_sha": "a1a79d25ac6d346b64c564e7733b4c040af66a63",
+  "workflow_file": ".github/workflows/ci.yml",
+  "run_id": 44734716532,
+  "run_url": "https://github.com/pydantic/pydantic-settings/actions/runs/44734716532",
+  "failing_job": null,
+  "failing_command": null,
+  "log_excerpt": null,
+  "changed_files": [
+    "pydantic_settings/sources/providers/cli.py",
+    "tests/test_source_cli.py"
+  ],
+  "root_cause_label": "passing: validate CLI list numeric tokens with _JSON_NUMBER regex instead of float() in pydantic_settings/sources/providers/cli.py so non-JSON float forms (.5, 007, +1, 1_000, inf) are quoted as strings",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "CI workflow succeeded on head_sha; verified code diff."
+  }
+}

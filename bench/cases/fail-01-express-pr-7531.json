@@ -1,0 +1,27 @@
+{
+  "id": "fail-01-express-pr-7531",
+  "status": "fail",
+  "repo": "expressjs/express",
+  "pr": 7531,
+  "pr_url": "https://github.com/expressjs/express/pull/7531",
+  "language": "javascript",
+  "base_sha": "0dee2c52c7c873498f8ed7d8ee4ddd0a04d3ada8",
+  "head_sha": "5ebf19adabb6e0741eda1fecadecee9f6543ba49",
+  "workflow_file": ".github/workflows/ci.yml",
+  "run_id": 44581270820,
+  "run_url": "https://github.com/expressjs/express/actions/runs/44581270820",
+  "failing_job": "Node.js 18 - ubuntu-latest",
+  "failing_command": "npm run test-ci",
+  "log_excerpt": "2026-11-19T17:49:44.2773374Z       at Context.<anonymous> (test/app.listRoutes.js:154:12)\n2026-11-19T17:49:44.2773779Z       at process.processImmediate (node:internal/timers:476:21)\n2026-11-19T17:49:44.2774030Z \n2026-11-19T17:49:44.2774112Z   5) app.listRoutes()\n2026-11-19T17:49:44.2774503Z        should reflect routes added after inspecting an empty mounted sub-application:\n2026-11-19T17:49:44.2774985Z      TypeError: Cannot read properties of undefined (reading 'router')\n2026-11-19T17:49:44.2775384Z       at Context.<anonymous> (test/app.listRoutes.js:165:44)\n2026-11-19T17:49:44.2775772Z       at process.processImmediate (node:internal/timers:476:21)\n2026-11-19T17:49:44.2776004Z \n2026-11-19T17:49:44.2776078Z   6) app.listRoutes()\n2026-11-19T17:49:44.2776685Z        should capture routing settings when first inspecting an empty mounted sub-application:\n2026-11-19T17:49:44.2777003Z \n2026-11-19T17:49:44.2777227Z       AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n2026-11-19T17:49:44.2777473Z \n2026-11-19T17:49:44.2777551Z 0 !== 1\n2026-11-19T17:49:44.2777670Z \n2026-11-19T17:49:44.2777754Z       + expected - actual\n2026-11-19T17:49:44.2777882Z \n2026-11-19T17:49:44.2778219Z       -0\n2026-11-19T17:49:44.2778653Z       +1\n2026-11-19T17:49:44.2778817Z       \n2026-11-19T17:49:44.2779262Z       at Context.<anonymous> (test/app.listRoutes.js:182:12)\n2026-11-19T17:49:44.2779660Z       at process.processImmediate (node:internal/timers:476:21)\n2026-11-19T17:49:44.2779899Z \n2026-11-19T17:49:44.2779977Z   7) app.listRoutes()\n2026-11-19T17:49:44.2780314Z        should defer router creation until after mounting and configuration:\n2026-11-19T17:49:44.2780788Z      TypeError: Cannot read properties of undefined (reading 'router')\n2026-11-19T17:49:44.2781193Z       at Context.<anonymous> (test/app.listRoutes.js:208:44)\n2026-11-19T17:49:44.2781577Z       at process.processImmediate (node:internal/timers:476:21)",
+  "changed_files": [
+    "lib/application.js",
+    "package.json",
+    "test/app.listRoutes.js"
+  ],
+  "root_cause_label": "unit_test: lib/application.js:240-244 & test/app.listRoutes.js — Router#listRoutes() does not read the mounted_app.router getter defined in app.use (lib/application.js line 242 stays uncovered), leaving mounted sub-application entries unexposed and failing 9 tests in test/app.listRoutes.js",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "PR defines a mounted_app.router getter in lib/application.js (line 242, reported uncovered in CI) and adds test/app.listRoutes.js where 9 sub-application tests fail because Router#listRoutes() does not inspect mounted_app.router."
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "id": "pass-05-axios-pr-11371",
+  "status": "pass",
+  "repo": "axios/axios",
+  "pr": 11371,
+  "pr_url": "https://github.com/axios/axios/pull/11371",
+  "language": "javascript",
+  "base_sha": "aa54a5e1e0e50cd1a2561b854ae5490ff589d065",
+  "head_sha": "73dd288d9bb64217f1dca06d697b8104c6aa264d",
+  "workflow_file": ".github/workflows/run-ci.yml",
+  "run_id": 39929267719,
+  "run_url": "https://github.com/axios/axios/actions/runs/39929267719",
+  "failing_job": null,
+  "failing_command": null,
+  "log_excerpt": null,
+  "changed_files": [
+    "PRE_RELEASE_CHANGELOG.md",
+    "lib/adapters/xhr.js",
+    "lib/helpers/toFormData.js"
+  ],
+  "root_cause_label": "passing: update inline comments and JSDoc in lib/adapters/xhr.js and lib/helpers/toFormData.js with changelog note",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "CI workflow succeeded on head_sha; verified code diff."
+  }
+}

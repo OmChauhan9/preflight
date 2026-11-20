@@ -1,0 +1,26 @@
+{
+  "id": "fail-20-pydantic-settings-pr-1080",
+  "status": "fail",
+  "repo": "pydantic/pydantic-settings",
+  "pr": 1080,
+  "pr_url": "https://github.com/pydantic/pydantic-settings/pull/1080",
+  "language": "python",
+  "base_sha": "f651a7a57a0e3b26147da02f2fda2d05f8c34cce",
+  "head_sha": "0f067d059611fcf50bfacf6b35d0f50b4c06d5f9",
+  "workflow_file": ".github/workflows/ci.yml",
+  "run_id": 38915030818,
+  "run_url": "https://github.com/pydantic/pydantic-settings/actions/runs/38915030818",
+  "failing_job": "lint",
+  "failing_command": "pre-commit run --show-diff-on-failure --color=always --all-files",
+  "log_excerpt": "2026-10-16T14:21:16.1808956Z Lint.....................................................................Passed\n2026-10-16T14:21:18.5233059Z Mypy.....................................................................Failed\n2026-10-16T14:21:18.5234167Z - hook id: mypy\n2026-10-16T14:21:18.5234742Z - exit code: 2\n2026-10-16T14:21:18.5235055Z \n2026-10-16T14:21:18.5235299Z uv run mypy pydantic_settings\n2026-10-16T14:21:18.5236646Z pydantic_settings/sources/providers/azure.py:195: error: Argument 1 to \"is_pydantic_dataclass\" has incompatible type \"TypeForm[Any] | Any | None\"; expected \"type[Any]\"  [arg-type]\n2026-10-16T14:21:18.5238204Z Found 1 error in 1 file (checked 22 source files)\n2026-10-16T14:21:18.5238838Z make: *** [Makefile:31: mypy] Error 1\n2026-10-16T14:21:18.5418841Z ##[error]Process completed with exit code 1.",
+  "changed_files": [
+    "pydantic_settings/sources/providers/azure.py",
+    "tests/test_source_azure_key_vault.py"
+  ],
+  "root_cause_label": "typecheck: pydantic_settings/sources/providers/azure.py:195 — calling is_pydantic_dataclass(annotation) in AzureKeyVaultSettingsSource.next_field where annotation has type TypeForm[Any] | Any | None instead of type[Any] fails mypy [arg-type]",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "PR adds next_field in pydantic_settings/sources/providers/azure.py calling is_pydantic_dataclass(annotation) at line 195 without narrowing annotation to a type, failing mypy [arg-type]."
+  }
+}

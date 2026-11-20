@@ -1,0 +1,29 @@
+{
+  "id": "fail-11-werkzeug-pr-3300",
+  "status": "fail",
+  "repo": "pallets/werkzeug",
+  "pr": 3300,
+  "pr_url": "https://github.com/pallets/werkzeug/pull/3300",
+  "language": "python",
+  "base_sha": "d4b67549221d050e3e7300dfaa002b8b59672a12",
+  "head_sha": "8f2771a13fa090ec87e29add513535ae6cb8d5da",
+  "workflow_file": ".github/workflows/tests.yaml",
+  "run_id": 36164674192,
+  "run_url": "https://github.com/pallets/werkzeug/actions/runs/36164674192",
+  "failing_job": "typing",
+  "failing_command": "uv run --locked --no-default-groups --group dev tox run -e typing",
+  "log_excerpt": "2026-09-25T17:03:25.1744182Z typing: commands[0]> mypy\n2026-09-25T17:03:26.7525759Z src/werkzeug/wrappers/request.py:163: error: Incompatible types in assignment\n2026-09-25T17:03:26.7526825Z (expression has type \"bool\", variable has type \"None\")  [assignment]\n2026-09-25T17:03:26.7527674Z                 populate_request = True\n2026-09-25T17:03:26.7528609Z                                    ^~~~\n2026-09-25T17:03:26.9835087Z Found 1 error in 1 file (checked 54 source files)\n2026-09-25T17:03:26.9903379Z typing: exit 1 (1.82 seconds) /home/runner/work/werkzeug/werkzeug> mypy pid=2459\n2026-09-25T17:03:26.9909686Z   typing: FAIL code 1 (2.41=setup[0.59]+cmd[1.82] seconds)\n2026-09-25T17:03:26.9910321Z   evaluation failed :( (2.51 seconds)\n2026-09-25T17:03:27.0436230Z ##[error]Process completed with exit code 1.",
+  "changed_files": [
+    "CHANGES.rst",
+    "examples/i18nurls/application.py",
+    "src/werkzeug/debug/__init__.py",
+    "src/werkzeug/wrappers/request.py",
+    "tests/test_wrappers.py"
+  ],
+  "root_cause_label": "typecheck: src/werkzeug/wrappers/request.py:136,163 — annotating Request.__init__ parameter as populate_request: None = None causes mypy [assignment] error when assigning populate_request = True",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "PR changes populate_request: bool = True to populate_request: None = None in src/werkzeug/wrappers/request.py:136 and assigns populate_request = True at line 163, triggering a mypy [assignment] error."
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "id": "fail-04-zod-pr-6546",
+  "status": "fail",
+  "repo": "colinhacks/zod",
+  "pr": 6546,
+  "pr_url": "https://github.com/colinhacks/zod/pull/6546",
+  "language": "typescript",
+  "base_sha": "eb1c1089f7f9469078839f6e443830f7e3fdc06b",
+  "head_sha": "68c44471f18438217841a6b54a312bcdd7f8b46b",
+  "workflow_file": ".github/workflows/test.yml",
+  "run_id": 33567353976,
+  "run_url": "https://github.com/colinhacks/zod/actions/runs/33567353976",
+  "failing_job": "Lint on Node latest",
+  "failing_command": "pnpm format:check",
+  "log_excerpt": "2026-09-01T22:39:45.6281054Z > @ format:check /home/runner/work/zod/zod\n2026-09-01T22:39:45.6281409Z > biome check .\n2026-09-01T22:39:45.6281544Z \n2026-09-01T22:39:46.7991951Z ./packages/bench/validate-vs-safeparse.ts format \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n2026-09-01T22:39:46.7992406Z \n2026-09-01T22:39:46.8007047Z   \u00d7 Formatter would have printed the following content:\n2026-09-01T22:39:46.8007655Z   \n2026-09-01T22:39:46.8022237Z     290 290 \u2502         const plainSp = rows.find((o) => o.name === c.name && !o.compiled)!.invalid.safeParseNs;\n2026-09-01T22:39:46.8023519Z     291 291 \u2502         const compV = c.compiled.invalid.validateNs;\n2026-09-01T22:39:46.8025449Z     292     \u2502 - \u00b7\u00b7\u00b7\u00b7\u00b7\u00b7console.log(`${pad(c.name,\u00b726)}${padL(fmtNs(plainSp),\u00b711)}${padL(fmtNs(compV),\u00b710)}${padL(`${(plainSp\u00b7/\u00b7compV).toFixed(2)}x`,\u00b78)}`);\n2026-09-01T22:39:46.8026696Z         292 \u2502 + \u00b7\u00b7\u00b7\u00b7\u00b7\u00b7console.log(\n2026-09-01T22:39:46.8028005Z         293 \u2502 + \u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7`${pad(c.name,\u00b726)}${padL(fmtNs(plainSp),\u00b711)}${padL(fmtNs(compV),\u00b710)}${padL(`${(plainSp\u00b7/\u00b7compV).toFixed(2)}x`,\u00b78)}`\n2026-09-01T22:39:46.8029025Z         294 \u2502 + \u00b7\u00b7\u00b7\u00b7\u00b7\u00b7);\n2026-09-01T22:39:46.8029461Z     293 295 \u2502       }\n2026-09-01T22:39:46.8030009Z     294 296 \u2502       console.log(\"-\".repeat(55));\n2026-09-01T22:39:46.8030855Z     295 297 \u2502       const ratios = cross\n2026-09-01T22:39:46.8032236Z     296     \u2502 - \u00b7\u00b7\u00b7\u00b7\u00b7\u00b7.map((c)\u00b7=>\u00b7rows.find((o)\u00b7=>\u00b7o.name\u00b7===\u00b7c.name\u00b7&&\u00b7!o.compiled)!.invalid.safeParseNs\u00b7/\u00b7c.compiled.invalid.validateNs)\n2026-09-01T22:39:46.8033338Z         298 \u2502 + \u00b7\u00b7\u00b7\u00b7\u00b7\u00b7.map(\n2026-09-01T22:39:46.8034595Z         299 \u2502 + \u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7(c)\u00b7=>\u00b7rows.find((o)\u00b7=>\u00b7o.name\u00b7===\u00b7c.name\u00b7&&\u00b7!o.compiled)!.invalid.safeParseNs\u00b7/\u00b7c.compiled.invalid.validateNs\n2026-09-01T22:39:46.8035224Z         300 \u2502 + \u00b7\u00b7\u00b7\u00b7\u00b7\u00b7)\n2026-09-01T22:39:46.8035547Z     297 301 \u2502         .sort((a, b) => a - b);\n2026-09-01T22:39:46.8036461Z Checked 448 files in 1131ms. No fixes applied.\n2026-09-01T22:39:46.8036768Z Found 1 error.",
+  "changed_files": [
+    "packages/bench/validate-vs-safeparse.ts",
+    "packages/docs/app/layout.tsx",
+    "packages/docs/content/blog/zod-4-5.mdx",
+    "packages/docs/content/blog/zod-4-6.mdx",
+    "packages/docs/public/blog/validate-compiled-invalid-dark.svg",
+    "packages/docs/public/blog/validate-compiled-invalid-light.svg",
+    "packages/docs/public/blog/validate-compiled-invalid.svg",
+    "packages/docs/public/blog/validate-compiled-vs-plain-invalid-dark.svg",
+    "packages/docs/public/blog/validate-compiled-vs-plain-invalid-light.svg",
+    "packages/docs/public/blog/validate-compiled-vs-plain-invalid.svg",
+    "packages/docs/public/blog/validate-invalid-dark.svg",
+    "packages/docs/public/blog/validate-invalid-light.svg",
+    "packages/docs/public/blog/validate-invalid.svg"
+  ],
+  "root_cause_label": "lint_format: packages/bench/validate-vs-safeparse.ts:292,296 — biome check fails on unformatted single-line console.log(...) and cross.map(...) calls exceeding line width",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "PR adds packages/bench/validate-vs-safeparse.ts with unformatted lines 292 and 296 that fail biome check during pnpm format:check."
+  }
+}

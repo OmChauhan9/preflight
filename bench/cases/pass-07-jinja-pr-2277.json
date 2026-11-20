@@ -1,0 +1,27 @@
+{
+  "id": "pass-07-jinja-pr-2277",
+  "status": "pass",
+  "repo": "pallets/jinja",
+  "pr": 2277,
+  "pr_url": "https://github.com/pallets/jinja/pull/2277",
+  "language": "python",
+  "base_sha": "5ef70112a1ff19c05324ff889dd30405b1002044",
+  "head_sha": "be6fa29320c49af99fab26666d9f2f1175efbd53",
+  "workflow_file": ".github/workflows/tests.yaml",
+  "run_id": 35172631803,
+  "run_url": "https://github.com/pallets/jinja/actions/runs/35172631803",
+  "failing_job": null,
+  "failing_command": null,
+  "log_excerpt": null,
+  "changed_files": [
+    "CHANGES.rst",
+    "src/jinja2/filters.py",
+    "tests/test_filters.py"
+  ],
+  "root_cause_label": "passing: accept collections.abc.Mapping in do_urlencode in src/jinja2/filters.py with UserDict unit tests in tests/test_filters.py",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "CI workflow succeeded on head_sha; verified code diff."
+  }
+}

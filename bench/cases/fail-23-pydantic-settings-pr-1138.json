@@ -1,0 +1,26 @@
+{
+  "id": "fail-23-pydantic-settings-pr-1138",
+  "status": "fail",
+  "repo": "pydantic/pydantic-settings",
+  "pr": 1138,
+  "pr_url": "https://github.com/pydantic/pydantic-settings/pull/1138",
+  "language": "python",
+  "base_sha": "cfbe8ad08734bbbeb2dae568035f3f1997d6d5b6",
+  "head_sha": "eb309adc9bbbdbeed82e777ae995fc9e6ab97532",
+  "workflow_file": ".github/workflows/ci.yml",
+  "run_id": 42368521211,
+  "run_url": "https://github.com/pydantic/pydantic-settings/actions/runs/42368521211",
+  "failing_job": "test py3.13 on ubuntu-latest",
+  "failing_command": "make test",
+  "log_excerpt": "2026-11-07T11:31:48.8183197Z         try:\n2026-11-07T11:31:48.8183721Z             (secrets_dir / 'passwd').symlink_to(secrets_dir / 'passwd')\n2026-11-07T11:31:48.8184434Z         except (OSError, NotImplementedError):\n2026-11-07T11:31:48.8185112Z             pytest.skip('symlinks not supported on this platform')\n2026-11-07T11:31:48.8186097Z         class Settings(BaseSettings):\n2026-11-07T11:31:48.8186741Z             model_config = SettingsConfigDict(secrets_dir=secrets_dir)\n2026-11-07T11:31:48.8187473Z             passwd: str | None = None\n2026-11-07T11:31:48.8188536Z >       assert Settings().passwd is None\n2026-11-07T11:31:48.8189045Z                ^^^^^^^^^^\n2026-11-07T11:31:48.8189490Z tests/test_settings.py:3676: \n2026-11-07T11:31:48.8203021Z                 field_value, field_key, value_is_complex = self._get_resolved_field_value(field, field_name)\n2026-11-07T11:31:48.8203925Z             except Exception as e:\n2026-11-07T11:31:48.8204420Z >               raise SettingsError(\n2026-11-07T11:31:48.8205240Z                     f'error getting value for field \"{field_name}\" from source \"{self.__class__.__name__}\"'\n2026-11-07T11:31:48.8206084Z                 ) from e\n2026-11-07T11:31:48.8207136Z E               pydantic_settings.exceptions.SettingsError: error getting value for field \"passwd\" from source \"SecretsSettingsSource\"\n2026-11-07T11:31:48.8208612Z pydantic_settings/sources/base.py:724: SettingsError",
+  "changed_files": [
+    "pydantic_settings/sources/providers/secrets.py",
+    "tests/test_settings.py"
+  ],
+  "root_cause_label": "unit_test: pydantic_settings/sources/providers/secrets.py:128-133 & tests/test_settings.py:3676 — SecretsSettingsSource.get_field_value calls path.is_file() / find_case_path() on a self-referencing symlink loop without catching OSError (ELOOP), raising SettingsError in test_secrets_symlink_loop_is_skipped",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "PR adds test_secrets_symlink_loop_is_skipped in tests/test_settings.py:3664 and try/except around path.resolve() in secrets.py, but an unguarded stat/is_file call on the symlink loop still raises OSError (wrapped as SettingsError)."
+  }
+}

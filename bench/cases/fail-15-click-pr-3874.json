@@ -1,0 +1,26 @@
+{
+  "id": "fail-15-click-pr-3874",
+  "status": "fail",
+  "repo": "pallets/click",
+  "pr": 3874,
+  "pr_url": "https://github.com/pallets/click/pull/3874",
+  "language": "python",
+  "base_sha": "6aabf099bfdd4c1e75fe8d0e0d4241372b988ab1",
+  "head_sha": "40abfa72f8bf110ef6232d37de8a3cab0dc13351",
+  "workflow_file": ".github/workflows/tests.yaml",
+  "run_id": 35104209329,
+  "run_url": "https://github.com/pallets/click/actions/runs/35104209329",
+  "failing_job": "Windows",
+  "failing_command": "uv run --locked --no-default-groups --group dev tox run",
+  "log_excerpt": "2026-09-16T13:48:20.6260194Z ================================== FAILURES ===================================\n2026-09-16T13:48:20.6260833Z ____________ test_editor_windows_path_normalization[plain notepad] ____________\n2026-09-16T13:48:20.6261508Z tests\\test_termui.py:630: in test_editor_windows_path_normalization\n2026-09-16T13:48:20.6262014Z     assert args == expected_cmd + [\"f.txt\"]\n2026-09-16T13:48:20.6262572Z E   AssertionError: assert ['C:\\\\Windows...EXE', 'f.txt'] == ['notepad', 'f.txt']\n2026-09-16T13:48:20.6263162Z E     \n2026-09-16T13:48:20.6263523Z E     At index 0 diff: 'C:\\\\Windows\\\\system32\\\\notepad.EXE' != 'notepad'\n2026-09-16T13:48:20.6263972Z E     \n2026-09-16T13:48:20.6264181Z E     Full diff:\n2026-09-16T13:48:20.6264449Z E       [\n2026-09-16T13:48:20.6264710Z E     -     'notepad',\n2026-09-16T13:48:20.6265524Z E     +     'C:\\\\Windows\\\\system32\\\\notepad.EXE',\n2026-09-16T13:48:20.6265910Z E           'f.txt',\n2026-09-16T13:48:20.6266174Z E       ]\n2026-09-16T13:48:20.6266506Z =========================== short test summary info ===========================\n2026-09-16T13:48:20.6267175Z FAILED tests/test_termui.py::test_editor_windows_path_normalization[plain notepad]\n2026-09-16T13:48:20.6267891Z == 1 failed, 1983 passed, 101 skipped, 31000 deselected, 1 xfailed in 6.03s ===",
+  "changed_files": [
+    "src/click/_termui_impl.py",
+    "tests/test_termui.py"
+  ],
+  "root_cause_label": "unit_test: src/click/_termui_impl.py:737 & tests/test_termui.py:630 — resolving editor_parts[0] with shutil.which in Editor.edit_files turns 'notepad' into 'C:\\\\Windows\\\\system32\\\\notepad.EXE' on Windows, breaking test_editor_windows_path_normalization",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "PR adds shutil.which(editor_parts[0]) in src/click/_termui_impl.py and mocks it in test_editor_path_normalization but not in test_editor_windows_path_normalization, which fails on Windows when 'notepad' resolves to C:\\Windows\\system32\\notepad.EXE."
+  }
+}

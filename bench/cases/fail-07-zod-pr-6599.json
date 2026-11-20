@@ -1,0 +1,29 @@
+{
+  "id": "fail-07-zod-pr-6599",
+  "status": "fail",
+  "repo": "colinhacks/zod",
+  "pr": 6599,
+  "pr_url": "https://github.com/colinhacks/zod/pull/6599",
+  "language": "typescript",
+  "base_sha": "f1448f7cee00df9fe1e9ad84a000aa1828cc8bc1",
+  "head_sha": "dd86cb223d79dc800980ee5202048271458aa37d",
+  "workflow_file": ".github/workflows/test.yml",
+  "run_id": 34775092004,
+  "run_url": "https://github.com/colinhacks/zod/actions/runs/34775092004",
+  "failing_job": "Test with TypeScript 5.5 on Node lts/* (ubuntu-latest)",
+  "failing_command": "nub run test",
+  "log_excerpt": "2026-09-13T18:37:03.7631846Z \u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 1 \u23af\u23af\u23af\u23af\u23af\u23af\u23af\n2026-09-13T18:37:03.7632340Z \n2026-09-13T18:37:03.7651077Z  FAIL   @zod/treeshaking  bundle-size.test.ts > zod-mini-object stays under 4682 gzipped bytes\n2026-09-13T18:37:03.7652765Z AssertionError: zod-mini-object is 4694 gzipped bytes, over the 4682 ceiling. If the growth is intended, raise the ceiling in this file in the same commit.: expected 4694 to be less than or equal to 4682\n2026-09-13T18:37:03.7653840Z  \u276f bundle-size.test.ts:101:7\n2026-09-13T18:37:03.7664755Z      99|       size,\n2026-09-13T18:37:03.7665232Z     100|       `${fixture} is ${size} gzipped bytes, over the ${ceiling} ceilin\u2026\n2026-09-13T18:37:03.7665802Z     101|     ).toBeLessThanOrEqual(ceiling);\n2026-09-13T18:37:03.7666211Z        |       ^\n2026-09-13T18:37:03.7666442Z     102|   });\n2026-09-13T18:37:03.7666640Z     103| }\n2026-09-13T18:37:03.7666937Z \u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/1]\u23af\n2026-09-13T18:37:03.7677442Z  Test Files  1 failed | 595 passed (596)\n2026-09-13T18:37:03.7712628Z       Tests  1 failed | 8312 passed (8313)",
+  "changed_files": [
+    "packages/bench/validate-no-value-memory.ts",
+    "packages/bench/validate-vs-safeparse.ts",
+    "packages/zod/src/v4/core/parse.ts",
+    "packages/zod/src/v4/core/schemas.ts",
+    "packages/zod/src/v4/core/tests/compile-generative.test.ts"
+  ],
+  "root_cause_label": "unit_test: packages/zod/src/v4/core/schemas.ts & bundle-size.test.ts:101 — adding ctx.noValue branches across $ZodType, $ZodArray, and handlePropertyResult increases zod-mini-object bundle size to 4694 gzipped bytes (exceeding 4682 ceiling)",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "PR adds noValue branches in packages/zod/src/v4/core/schemas.ts without updating the zod-mini-object ceiling in bundle-size.test.ts, causing a 12-byte gzipped ceiling failure (4694 vs 4682)."
+  }
+}

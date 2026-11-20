@@ -1,0 +1,25 @@
+{
+  "id": "fail-10-werkzeug-pr-3269",
+  "status": "fail",
+  "repo": "pallets/werkzeug",
+  "pr": 3269,
+  "pr_url": "https://github.com/pallets/werkzeug/pull/3269",
+  "language": "python",
+  "base_sha": "f27af2652a798931aa00c2476a4de130f597c1d3",
+  "head_sha": "bb9c27fb2d425c70977b304b18b448d6525c800f",
+  "workflow_file": ".github/workflows/tests.yaml",
+  "run_id": 34727229122,
+  "run_url": "https://github.com/pallets/werkzeug/actions/runs/34727229122",
+  "failing_job": "3.10",
+  "failing_command": "uv run --locked --no-default-groups --group dev tox run",
+  "log_excerpt": "2026-09-13T00:09:26.8725733Z =================================== FAILURES ===================================\n2026-09-13T00:09:26.8726373Z ____________________ test_mime_accept_empty_header_fallback ____________________\n2026-09-13T00:09:26.8727153Z tests/sansio/test_accept_mimetype_cases.py:17: in test_mime_accept_empty_header_fallback\n2026-09-13T00:09:26.8728018Z     assert accept.best_match([\"application/json\", \"text/html\"]) == \"application/json\"\n2026-09-13T00:09:26.8728683Z E   AssertionError: assert None == 'application/json'\n2026-09-13T00:09:26.8729225Z E    +  where None = best_match(['application/json', 'text/html'])\n2026-09-13T00:09:26.8729768Z E    +    where best_match = MIMEAccept([]).best_match\n2026-09-13T00:09:26.8730279Z =========================== short test summary info ============================\n2026-09-13T00:09:26.8730893Z FAILED tests/sansio/test_accept_mimetype_cases.py::test_mime_accept_empty_header_fallback\n2026-09-13T00:09:26.8731476Z ======================= 1 failed, 1025 passed in 10.84s ========================",
+  "changed_files": [
+    "tests/sansio/test_accept_mimetype_cases.py"
+  ],
+  "root_cause_label": "unit_test: tests/sansio/test_accept_mimetype_cases.py:17 — test_mime_accept_empty_header_fallback wrongly asserts MIMEAccept([]).best_match(['application/json', 'text/html']) == 'application/json', whereas an empty MIMEAccept returns None",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "PR adds tests/sansio/test_accept_mimetype_cases.py with test_mime_accept_empty_header_fallback asserting MIMEAccept([]).best_match(...) == 'application/json', which fails with AssertionError: assert None == 'application/json'."
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "id": "pass-02-zod-pr-6768",
+  "status": "pass",
+  "repo": "colinhacks/zod",
+  "pr": 6768,
+  "pr_url": "https://github.com/colinhacks/zod/pull/6768",
+  "language": "typescript",
+  "base_sha": "2a343ed2a4ffbea73fb83862ee1e317662292481",
+  "head_sha": "04ae04c78c58594f35782c72eb7c567458e9ae03",
+  "workflow_file": ".github/workflows/test.yml",
+  "run_id": 44785043720,
+  "run_url": "https://github.com/colinhacks/zod/actions/runs/44785043720",
+  "failing_job": null,
+  "failing_command": null,
+  "log_excerpt": null,
+  "changed_files": [
+    "packages/zod/src/v4/classic/tests/cyclic-data.test.ts",
+    "packages/zod/src/v4/core/memoizer.ts"
+  ],
+  "root_cause_label": "passing: track unfinished cycle ancestor dependencies in packages/zod/src/v4/core/memoizer.ts so cyclic nodes are re-parsed when a skipped ancestor fails, with tests in cyclic-data.test.ts",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "CI workflow succeeded on head_sha; verified code diff."
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "id": "fail-21-pydantic-settings-pr-1092",
+  "status": "fail",
+  "repo": "pydantic/pydantic-settings",
+  "pr": 1092,
+  "pr_url": "https://github.com/pydantic/pydantic-settings/pull/1092",
+  "language": "python",
+  "base_sha": "8dc9e05ab07d91e21dd2a37d0b9c30f6d92b1930",
+  "head_sha": "6b0967890f9a8bc6ab81b0484ea35e213636f2b4",
+  "workflow_file": ".github/workflows/ci.yml",
+  "run_id": 39601165788,
+  "run_url": "https://github.com/pydantic/pydantic-settings/actions/runs/39601165788",
+  "failing_job": "test py3.11 on windows-latest",
+  "failing_command": "make test",
+  "log_excerpt": "2026-10-21T12:38:52.2272708Z ================================== FAILURES ===================================\n2026-10-21T12:38:52.2273370Z _______________ test_case_sensitive_nested_accepted_field_name ________________\n2026-10-21T12:38:52.2273976Z env = <conftest.SetEnv object at 0x000001E83092FFD0>\n2026-10-21T12:38:52.2274482Z     def test_case_sensitive_nested_accepted_field_name(env):\n2026-10-21T12:38:52.2274913Z         class Nested(BaseModel):\n2026-10-21T12:38:52.2275334Z             model_config = ConfigDict(populate_by_name=True)\n2026-10-21T12:38:52.2275765Z             ApiKey: str = Field(alias='api_key')\n2026-10-21T12:38:52.2276360Z         class Settings(BaseSettings):\n2026-10-21T12:38:52.2276915Z             model_config = SettingsConfigDict(env_nested_delimiter='__', case_sensitive=True)\n2026-10-21T12:38:52.2277468Z             nested: Nested\n2026-10-21T12:38:52.2277922Z         env.set('nested__APIKEY', 'value')\n2026-10-21T12:38:52.2278357Z >       with pytest.raises(ValidationError, match=r'nested\\.api_key'):\n2026-10-21T12:38:52.2278853Z E       Failed: DID NOT RAISE ValidationError\n2026-10-21T12:38:52.2279238Z tests\\test_settings.py:4655: Failed",
+  "changed_files": [
+    "pydantic_settings/sources/base.py",
+    "tests/test_settings.py"
+  ],
+  "root_cause_label": "unit_test: tests/test_settings.py:4655 & pydantic_settings/sources/base.py — test_case_sensitive_nested_accepted_field_name fails with 'DID NOT RAISE ValidationError' on Windows because BaseSettings enforces case_sensitive=False on Windows by default unless nested field lookup checks case_sensitive",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "PR adds test_case_sensitive_nested_accepted_field_name in tests/test_settings.py:4645 expecting env.set('nested__APIKEY', 'value') to raise ValidationError under case_sensitive=True, which fails on Windows where os.environ keys are case-insensitive."
+  }
+}
