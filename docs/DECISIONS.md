@@ -10,7 +10,7 @@ This document records the core architectural decisions for **Preflight** (`https
 - [ADR-002: Verify Command Allowlist & Exit-Code-Only Verdicts](#adr-002-verify-command-allowlist--exit-code-only-verdicts)
 - [ADR-003: Context Budget (~20K Input Tokens, Priority Trimming, Low `max_completion_tokens`, Reasoning Off by Default)](#adr-003-context-budget-20k-input-tokens-priority-trimming-low-max_completion_tokens-reasoning-off-by-default)
 - [ADR-004: Generic Agent Skill (`skills/preflight/SKILL.md`) + Optional Git `pre-push` Hook](#adr-004-generic-agent-skill-skillspreflightskillmd--optional-git-pre-push-hook)
-- [ADR-005: Speed & Telemetry Panel & `--json` Output](#adr-005-speed--telemetry-panel--json-output)
+- [ADR-005: Speed Telemetry Panel and JSON Output](#adr-005-speed-telemetry-panel-and-json-output)
 - [ADR-006: Benchmark Dataset Design, Reproduction & Honesty Rules](#adr-006-benchmark-dataset-design-reproduction--honesty-rules)
 - [ADR-007: Rate-Limit Protection, Secret Redaction & Single-Flight Execution](#adr-007-rate-limit-protection-secret-redaction--single-flight-execution)
 - [ADR-008: Provider-Agnostic OpenAI-Compatible Client & Local-First $0 Default](#adr-008-provider-agnostic-openai-compatible-client--local-first-0-default)
@@ -133,7 +133,7 @@ Developers use a variety of AI coding agents — including **Claude Code**, **Op
 
 ---
 
-## ADR-005: Speed & Telemetry Panel & `--json` Output
+## ADR-005: Speed Telemetry Panel and JSON Output
 
 - **Status:** Accepted
 - **Date:** 2026-11-23
@@ -206,7 +206,7 @@ Local inference servers (such as Ollama on a single GPU/CPU) thrash memory if hi
 2. **HTTP 429 Backoff with `Retry-After`:**
    - On HTTP `429`, the HTTP client inspects the `Retry-After` response header (in delta-seconds or HTTP-date) when present, falling back to bounded exponential backoff with random jitter before retrying.
 3. **Secret Redaction:**
-   - API keys are read strictly from environment variables (`PREFLIGHT_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `CEREBRAS_API_KEY`). Any thrown errors or debug logs scrub `Authorization` headers and key values (`[REDACTED]`).
+   - API keys are read strictly from environment variables (`PREFLIGHT_API_KEY`, `OLLAMA_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `CEREBRAS_API_KEY`). Any thrown errors or debug logs scrub `Authorization` headers and key values (`[REDACTED]`).
 
 ### Consequences
 
@@ -231,7 +231,7 @@ An open-source developer tool should cost **$0** to install, try, and run locall
    - Default to **`ollama`** (`http://localhost:11434/v1`) with model **`qwen2.5-coder:7b`** and no required API key, enabling a 100% local, zero-cost out-of-the-box experience.
 3. **Seven Built-In Provider Presets:**
    - Ship built-in presets for:
-     - `ollama` (`http://localhost:11434/v1`, `qwen2.5-coder:7b`, no API key)
+     - `ollama` (`http://localhost:11434/v1`, `qwen2.5-coder:7b`, no API key required; optional `OLLAMA_API_KEY`)
      - `groq` (`https://api.groq.com/openai/v1`, `GROQ_API_KEY`, `llama-3.3-70b-versatile`)
      - `gemini` (`https://generativelanguage.googleapis.com/v1beta/openai`, `GEMINI_API_KEY`, `gemini-2.5-flash`)
      - `openrouter` (`https://openrouter.ai/api/v1`, `OPENROUTER_API_KEY`, `qwen/qwen-2.5-coder-32b-instruct:free`)

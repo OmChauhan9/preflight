@@ -17,14 +17,14 @@ Preflight uses a single `OpenAICompatibleClient` that sends standard `POST {base
    - `PREFLIGHT_BASE_URL` (overrides the preset's default base URL; required when `PREFLIGHT_PROVIDER=custom`)
    - `PREFLIGHT_API_KEY` (overrides the provider-specific API key variable)
 3. **Provider-Specific Environment Variable Fallbacks:**
-   - `GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `CEREBRAS_API_KEY`
+   - `OLLAMA_API_KEY` *(optional)*, `GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `CEREBRAS_API_KEY`
 4. **Built-In Default:** `PREFLIGHT_PROVIDER=ollama`, `PREFLIGHT_BASE_URL=http://localhost:11434/v1`, `PREFLIGHT_MODEL=qwen2.5-coder:7b` (no API key required — **$0 local-first**).
 
 ### Summary of Built-In Presets
 
 | Preset | Base URL (`POST .../chat/completions`) | Default Model | Auth Env Var | Requires API Key? |
 | :--- | :--- | :--- | :--- | :---: |
-| **`ollama`** *(default)* | `http://localhost:11434/v1` | `qwen2.5-coder:7b` | *(none)* | No ($0 local) |
+| **`ollama`** *(default)* | `http://localhost:11434/v1` | `qwen2.5-coder:7b` | `OLLAMA_API_KEY` *(optional)* | No ($0 local) |
 | **`groq`** | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` | `GROQ_API_KEY` | Yes |
 | **`gemini`** | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash` | `GEMINI_API_KEY` | Yes |
 | **`openrouter`** | `https://openrouter.ai/api/v1` | `qwen/qwen-2.5-coder-32b-instruct:free` | `OPENROUTER_API_KEY` | Yes |
@@ -42,7 +42,7 @@ Preflight uses a single `OpenAICompatibleClient` that sends standard `POST {base
   - *Source:* [Ollama OpenAI Compatibility Documentation](https://docs.ollama.com/api/openai-compatibility) / [Ollama GitHub `docs/openai.md`](https://github.com/ollama/ollama/blob/main/docs/openai.md)
 - **Default Model:** `qwen2.5-coder:7b`
   - *Source:* [Ollama `qwen2.5-coder` Library Page](https://ollama.com/library/qwen2.5-coder)
-- **Authentication:** Local Ollama does not require an API key (`requiresApiKey: false`). If `PREFLIGHT_API_KEY` is unset, `OpenAICompatibleClient` omits the `Authorization` header (and Ollama ignores placeholder bearer tokens if present).
+- **Authentication:** Local Ollama does not require an API key (`requiresApiKey: false`, `apiKeyEnv: 'OLLAMA_API_KEY'`). When neither `PREFLIGHT_API_KEY`, `OLLAMA_API_KEY`, nor `options.apiKey` is set, `OpenAICompatibleClient` omits the `Authorization` header (and if an optional key is supplied for a reverse-proxied Ollama instance, `Authorization: Bearer <key>` is sent).
   - *Source:* [Ollama OpenAI Compatibility Documentation](https://docs.ollama.com/api/openai-compatibility)
 - **Supported OpenAI Routes on Ollama:** `POST /v1/chat/completions`, `POST /v1/completions`, `GET /v1/models`, `POST /v1/embeddings`.
   - *Source:* [Ollama GitHub `docs/openai.md`](https://github.com/ollama/ollama/blob/main/docs/openai.md)
@@ -53,7 +53,7 @@ Preflight uses a single `OpenAICompatibleClient` that sends standard `POST {base
   npx preflight check
   ```
 
-### 2.2 `groq` (Groq Cloud LPU — Free Developer Tier Available)
+### 2.2 `groq` (Groq Cloud LPU — Provider Free Tier Subject to Change)
 
 - **Base URL:** `https://api.groq.com/openai/v1` (Chat Completions endpoint: `POST https://api.groq.com/openai/v1/chat/completions`)
   - *Source:* [Groq OpenAI Compatibility Documentation](https://console.groq.com/docs/openai)
@@ -62,11 +62,12 @@ Preflight uses a single `OpenAICompatibleClient` that sends standard `POST {base
 - **Authentication:** `Authorization: Bearer <GROQ_API_KEY>` (or `PREFLIGHT_API_KEY`)
   - *Source:* [Groq API Reference — Chat Completions](https://console.groq.com/docs/api-reference#chat-create)
 - **Compatibility & Rate-Limit Notes:**
+  - Groq offers a free developer rate-limit tier alongside paid tiers; exact requests-per-minute (RPM), tokens-per-minute (TPM), and free-tier availability are provider-controlled and subject to change.
   - Groq returns standard `Retry-After` headers when HTTP `429 Too Many Requests` limits are hit.
   - OpenAI fields `logprobs`, `top_logprobs`, `logit_bias`, and `n > 1` are not supported on Groq and return HTTP 400 if passed; Preflight never sends those fields.
   - *Sources:* [Groq OpenAI Compatibility Documentation](https://console.groq.com/docs/openai), [Groq Rate Limits Documentation](https://console.groq.com/docs/rate-limits)
 
-### 2.3 `gemini` (Google Gemini API — Free Tier via Google AI Studio)
+### 2.3 `gemini` (Google Gemini API — Provider Free Tier Subject to Change)
 
 - **Base URL:** `https://generativelanguage.googleapis.com/v1beta/openai` (Chat Completions endpoint: `POST https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`)
   - *Source:* [Google Gemini API OpenAI Compatibility Guide](https://ai.google.dev/gemini-api/docs/openai)
@@ -74,21 +75,23 @@ Preflight uses a single `OpenAICompatibleClient` that sends standard `POST {base
   - *Source:* [Google Gemini Models Documentation](https://ai.google.dev/gemini-api/docs/models)
 - **Authentication:** `Authorization: Bearer <GEMINI_API_KEY>` (API key created in [Google AI Studio](https://aistudio.google.com/apikey))
   - *Source:* [Google Gemini API OpenAI Compatibility Guide](https://ai.google.dev/gemini-api/docs/openai)
-- **Compatibility & Reasoning Notes:**
+- **Compatibility, Free-Tier & Rate-Limit Notes:**
+  - Google AI Studio provides a free tier with RPM/TPM/RPD quotas alongside paid billing tiers; free-tier availability and rate limits vary by model and region and are subject to change by Google.
   - Google's OpenAI-compatible endpoint supports `POST /v1beta/openai/chat/completions` and maps OpenAI's `reasoning_effort` (`"none"`, `"low"`, `"medium"`, `"high"`) to Gemini 2.5 thinking budgets.
-  - *Source:* [Google Gemini API OpenAI Compatibility Guide](https://ai.google.dev/gemini-api/docs/openai)
+  - *Sources:* [Google Gemini API OpenAI Compatibility Guide](https://ai.google.dev/gemini-api/docs/openai), [Google Gemini API Rate Limits Documentation](https://ai.google.dev/gemini-api/docs/rate-limits)
 
-### 2.4 `openrouter` (OpenRouter Unified API — Free `:free` Models Available)
+### 2.4 `openrouter` (OpenRouter Unified API — `:free` Model Tier Subject to Change)
 
 - **Base URL:** `https://openrouter.ai/api/v1` (Chat Completions endpoint: `POST https://openrouter.ai/api/v1/chat/completions`)
   - *Source:* [OpenRouter Quickstart Documentation](https://openrouter.ai/docs/quickstart)
-- **Default Model:** `qwen/qwen-2.5-coder-32b-instruct:free` (or any free/paid model slug in the OpenRouter catalog)
+- **Default Model:** `qwen/qwen-2.5-coder-32b-instruct:free` (or any free/paid model slug in the OpenRouter catalog; override via `--model` or `PREFLIGHT_MODEL`)
   - *Source:* [OpenRouter Models Catalog](https://openrouter.ai/models)
 - **Authentication:** `Authorization: Bearer <OPENROUTER_API_KEY>`
   - *Source:* [OpenRouter API Reference Overview](https://openrouter.ai/docs/api-reference/overview)
-- **Compatibility Notes:**
+- **Compatibility, Free-Tier & Rate-Limit Notes:**
+  - OpenRouter hosts community/provider-sponsored `:free` model variants with per-minute and daily request limits; active `:free` model slugs, credit requirements, and rate limits are provider-controlled and subject to change at any time.
   - Follows the standard OpenAI Chat Completions schema (`https://openrouter.ai/openapi.yaml`) and returns `usage` (`prompt_tokens`, `completion_tokens`, `total_tokens`).
-  - *Source:* [OpenRouter API Reference — Chat Completions](https://openrouter.ai/docs/api-reference/chat-completion)
+  - *Sources:* [OpenRouter API Reference — Chat Completions](https://openrouter.ai/docs/api-reference/chat-completion), [OpenRouter API Rate Limits Documentation](https://openrouter.ai/docs/api-reference/limits)
 
 ### 2.5 `openai` (Official OpenAI API)
 

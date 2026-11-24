@@ -17,7 +17,7 @@ AI coding agents and developers iterate in seconds, push a branch or open a pull
 > **An LLM decides *what* to check from your `git diff`, import graph, and `.github/workflows/*.yml`; real allowlisted scoped CI commands decide pass or fail via actual subprocess exit codes. Preflight never claims "CI will pass" — only "these checks passed" or "these checks failed".**
 
 - **LLM for triage & diagnosis only:** The model maps a diff and workflow definition to the highest-signal subset of checks, or diagnoses a failure log.
-- ** Strict workflow-derived allowlist:** Every command proposed by the model must match a tool and subcommand already present in `.github/workflows/*.yml` (only narrowing scope to specific files or test filters). Arbitrary binaries, shell chaining (`;`, `&&`, `||`, `|`, `` ` ``, `$()`), redirection, or path traversal (`..`) are refused and logged.
+- **Strict workflow-derived allowlist:** Every command proposed by the model must match a tool and subcommand already present in `.github/workflows/*.yml` (only narrowing scope to specific files or test filters). Arbitrary binaries, shell chaining (`;`, `&&`, `||`, `|`, `` ` ``, `$()`), redirection, or path traversal (`..`) are refused and logged.
 - **100% exit-code-driven verdicts:** Every pass/fail result maps 1:1 to a real subprocess exit code executed in your working tree.
 
 ---
@@ -73,10 +73,10 @@ Preflight uses a single provider-agnostic `OpenAICompatibleClient` (`POST /chat/
 
 | Preset (`--provider`) | Default Base URL | Default Model (`--model`) | Auth Env Var | Cost / Tier Notes |
 | :--- | :--- | :--- | :--- | :--- |
-| **`ollama`** *(default)* | `http://localhost:11434/v1` | `qwen2.5-coder:7b` | *(none required)* | **$0 local-first** on your machine via [Ollama](https://ollama.com/) |
-| **`groq`** | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` | `GROQ_API_KEY` | Free developer tier & high-speed cloud LPU |
-| **`gemini`** | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash` | `GEMINI_API_KEY` | Free tier available via Google AI Studio |
-| **`openrouter`** | `https://openrouter.ai/api/v1` | `qwen/qwen-2.5-coder-32b-instruct:free` | `OPENROUTER_API_KEY` | Free community model tier (`:free` suffix) |
+| **`ollama`** *(default)* | `http://localhost:11434/v1` | `qwen2.5-coder:7b` | `OLLAMA_API_KEY` *(optional)* | **$0 local-first** on your machine via [Ollama](https://ollama.com/) |
+| **`groq`** | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` | `GROQ_API_KEY` | Cloud LPU inference (provider free tier subject to change) |
+| **`gemini`** | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash` | `GEMINI_API_KEY` | Google AI Studio API (provider free tier subject to change) |
+| **`openrouter`** | `https://openrouter.ai/api/v1` | `qwen/qwen-2.5-coder-32b-instruct:free` | `OPENROUTER_API_KEY` | OpenRouter catalog (`:free` model availability subject to change) |
 | **`openai`** | `https://api.openai.com/v1` | `gpt-4o-mini` | `OPENAI_API_KEY` | Standard OpenAI pay-as-you-go API |
 | **`cerebras`** | `https://api.cerebras.ai/v1` | `llama-3.3-70b` | `CEREBRAS_API_KEY` | Wafer-scale inference with server `time_info` telemetry |
 | **`custom`** | `PREFLIGHT_BASE_URL` *(required)* | `PREFLIGHT_MODEL` *(required)* | `PREFLIGHT_API_KEY` *(optional)* | Any OpenAI-compatible server (vLLM, LM Studio, llama.cpp, LiteLLM) |
@@ -86,6 +86,8 @@ Global environment variable overrides (`PREFLIGHT_PROVIDER`, `PREFLIGHT_MODEL`, 
 ---
 
 ## Quickstart
+
+> **Current v0.1.0 Scaffold Status:** `preflight check`, `preflight explain`, and `preflight bench` are currently wired as `not implemented` CLI stubs (printing `not implemented` and exiting with code `0`) while the Phase 1–2 `Gather → Think → Verify` and `Explain` pipeline is implemented next. The `OpenAICompatibleClient`, CLI argument parser, Agent Skill, and 35-case benchmark corpus are ready today.
 
 ### 1. Prerequisites & Installation
 
@@ -108,31 +110,27 @@ npm run build
 ### 2. Standalone CLI Usage
 
 ```bash
-# Run Gather -> Think -> Verify using local Ollama ($0 default)
+# Display CLI usage and available options
+npx preflight --help
+
+# Run preflight check (v0.1.0 stub currently prints "not implemented" and exits 0;
+# Phase 1 will execute Gather -> Think -> Verify using local Ollama by default)
 npx preflight check
 
-# Emit machine-readable JSON for coding agents or scripts
+# Planned Phase 1–2 CLI invocations & flags (accepted by the CLI parser today):
 npx preflight check --json
-
-# Switch to a cloud or free-tier OpenAI-compatible provider preset
 GROQ_API_KEY=... npx preflight check --provider groq
 GEMINI_API_KEY=... npx preflight check --provider gemini
 OPENROUTER_API_KEY=... npx preflight check --provider openrouter
-
-# Override the model or opt in to extended reasoning
 npx preflight check --provider ollama --model qwen2.5-coder:14b --think
-
-# Diagnose a failed GitHub Actions run log or local log file against your diff
 npx preflight explain https://github.com/owner/repo/actions/runs/123456789
 npx preflight explain ./ci-failure.log --json
-
-# Run the benchmark evaluation suite across bench/cases/*.json
 npx preflight bench --provider ollama
 ```
 
 ### 3. AI Coding Agent Skill (`skills/preflight/SKILL.md`)
 
-Preflight ships with a portable [Agent Skills](https://agentskills.io) definition at `skills/preflight/SKILL.md` so AI coding agents automatically run `preflight check --json` before committing, pushing, or opening a pull request, and `preflight explain` when CI fails:
+Preflight ships with a portable [Agent Skills](https://agentskills.io) definition at `skills/preflight/SKILL.md`. In the current v0.1.0 scaffold, the skill instructs agents to invoke `preflight check` (with fallbacks to `node dist/cli.js check` and `npx --no-install preflight check`) and report `stdout`, `stderr`, and the exit code verbatim (currently `not implemented` with exit code `0`), and defines the planned Phase 1 post-edit `preflight check --json` pre-push workflow:
 
 - **Claude Code:** Copy or symlink `skills/preflight` to `.claude/skills/preflight`
 - **OpenAI Codex:** Copy or symlink `skills/preflight` to `.codex/skills/preflight` (or `.agents/skills/preflight`)
@@ -161,7 +159,7 @@ Preflight includes a curated, hand-verified benchmark corpus of **35 real public
 - [x] **Phase 0 — Groundwork & Open-Source Architecture (Complete):**
   - Technical specification ([`docs/SPEC.md`](./docs/SPEC.md)), ADRs ([`docs/DECISIONS.md`](./docs/DECISIONS.md)), and source-verified reference notes ([`docs/notes/providers.md`](./docs/notes/providers.md), [`docs/notes/agent-integrations.md`](./docs/notes/agent-integrations.md)).
   - Provider-agnostic `OpenAICompatibleClient` with local Ollama default, 7 built-in presets, single-flight queue, HTTP 429 `Retry-After` backoff, and secret redaction.
-  - TypeScript/Node 22 CLI scaffold (`preflight check`, `preflight explain`, `preflight bench`) and portable Agent Skill (`skills/preflight/SKILL.md`, [`docs/agent-setup.md`](./docs/agent-setup.md)).
+  - TypeScript/Node 22 CLI scaffold (`src/cli.ts`, where `preflight check`, `explain`, and `bench` currently print `not implemented` and exit `0`) and portable Agent Skill (`skills/preflight/SKILL.md`, [`docs/agent-setup.md`](./docs/agent-setup.md)).
   - Curated 35-PR benchmark corpus (`bench/cases/*.json`, [`bench/README.md`](./bench/README.md)) and 2 local `<1s` reproductions ([`bench/REPRO.md`](./bench/REPRO.md)).
 - [ ] **Phase 1 — Core Pipeline Implementation (Next):**
   - `Gather` diff, static import graph (JS/TS & Python), `.github/workflows/*.yml` parser, and 5-tier context trimmer (`<= 20K` tokens).
