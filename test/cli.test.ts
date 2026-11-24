@@ -1,5 +1,11 @@
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import type {
+  BenchClientMeta,
+  BenchOptions,
+  BenchReport,
+  BenchStatusFilter,
+} from '../src/bench/index.js';
 import type { CheckClientMeta, CheckOptions, CheckReport } from '../src/check.js';
 import { runCli, type CliDependencies, type CliIo } from '../src/cli.js';
 import type { OpenAICompatibleClientOptions } from '../src/clients/openai-compatible.js';
@@ -188,9 +194,69 @@ function makeExplainResult(
   };
 }
 
-describe('preflight CLI help and bench', () => {
-  it('prints updated usage with ollama default for --help, -h, empty args, and check --help', async () => {
-    for (const argv of [['--help'], ['-h'], [], ['check', '--help']]) {
+interface MakeBenchReportOptions {
+  provider?: string;
+  model?: string;
+  baseUrl?: string;
+  runTimestamp?: string;
+  casesDir?: string;
+  errors?: number;
+  writtenFiles?: {
+    summaryPath: string;
+    resultsPath: string;
+  };
+}
+
+function makeBenchReport(
+  options: MakeBenchReportOptions = {},
+  meta: BenchClientMeta = {
+    provider: 'ollama',
+    model: 'qwen2.5-coder:7b',
+    baseUrl: 'http://localhost:11434/v1',
+  },
+): BenchReport {
+  const report: BenchReport = {
+    mode: 'triage',
+    provider: options.provider ?? meta.provider,
+    model: options.model ?? meta.model,
+    baseUrl: options.baseUrl ?? meta.baseUrl,
+    runTimestamp: options.runTimestamp ?? '2026-01-01T00:00:00.000Z',
+    casesDir: options.casesDir ?? '/repo/bench/cases',
+    metrics: {
+      totalCases: 2,
+      failedCases: 1,
+      passingCases: 1,
+      caught: 1,
+      commandCaught: 1,
+      targetCaught: 1,
+      missed: 0,
+      falseAlarms: 0,
+      allowlistRefusals: 0,
+      errors: options.errors ?? 0,
+      medianWallMs: 215.4,
+      p95WallMs: 310.2,
+      medianThinkMs: 198.1,
+      medianTokPerSec: 74.5,
+    },
+    cases: [],
+  };
+
+  if (options.writtenFiles !== undefined) {
+    report.writtenFiles = options.writtenFiles;
+  }
+
+  return report;
+}
+
+describe('preflight CLI help', () => {
+  it('prints complete usage for all 4 commands with ollama default and zero stub markers', async () => {
+    for (const argv of [
+      ['--help'],
+      ['-h'],
+      [],
+      ['check', '--help'],
+      ['bench', '--help'],
+    ]) {
       const captured = createCapturedIo();
       const code = await runCli(argv, captured.io);
       const output = captured.stdout.join('\n');
@@ -200,7 +266,7 @@ describe('preflight CLI help and bench', () => {
       expect(output).toContain('check                  Run scoped CI pre-checks');
       expect(output).toContain('explain <log>          Explain a CI failure log');
       expect(output).toContain('init --hook            Install optional git pre-push hook');
-      expect(output).toContain('bench                  Run benchmark suite (not implemented)');
+      expect(output).toContain('bench                  Run curated benchmark suite');
       expect(output).toContain(
         '--provider <ollama|groq|gemini|openrouter|openai|cerebras|custom>',
       );
@@ -210,18 +276,267 @@ describe('preflight CLI help and bench', () => {
       expect(output).toContain('--log <file>');
       expect(output).toContain('--timeout <seconds>');
       expect(output).toContain('--no-verify');
+      expect(output).toContain('--cases-dir <dir>');
+      expect(output).toContain('--case <id>');
+      expect(output).toContain('--status <fail|pass|all>');
+      expect(output).toContain('--language <lang>');
+      expect(output).toContain('--limit <n>');
+      expect(output).toContain('--out <dir>');
+      expect(output).not.toContain('not implemented');
       expect(output).not.toContain('Phase 0');
       expect(captured.stderr).toEqual([]);
     }
   });
+});
 
-  it('prints "not implemented" and exits 0 for bench', async () => {
+describe('preflight CLI bench command', () => {
+  it('runs bench with human-readable output and exits 0 when metrics.errors is 0', async () => {
     const captured = createCapturedIo();
-    const code = await runCli(['bench'], captured.io);
+    let capturedBenchOpts: BenchOptions | undefined;
+    const runBenchFn = vi.fn(
+      async (options: BenchOptions, _client: LlmClient, meta: BenchClientMeta) => {
+        capturedBenchOpts = options;
+        return makeBenchReport(
+          {
+            writtenFiles: {
+              summaryPath: '/repo/bench/results/summary.md',
+              resultsPath: '/repo/bench/results/results.json',
+            },
+          },
+          meta,
+        );
+      },
+    );
+
+    const code = await runCli(['bench'], captured.io, {
+      cwd: '/repo',
+      env: {},
+      createClient: (opts) => createFakeClient(opts),
+      runBenchFn,
+    });
+    const output = captured.stdout.join('\n');
 
     expect(code).toBe(0);
-    expect(captured.stdout).toEqual(['not implemented']);
+    expect(runBenchFn).toHaveBeenCalledTimes(1);
+    expect(capturedBenchOpts).toEqual({
+      cwd: '/repo',
+      think: false,
+    });
+    expect(output).toContain('ollama');
+    expect(output).toContain('qwen2.5-coder:7b');
+    expect(output).toContain('/repo/bench/results/summary.md');
+    expect(output).toContain('/repo/bench/results/results.json');
+    expect(output).not.toContain('not implemented');
     expect(captured.stderr).toEqual([]);
+  });
+
+  it('emits redacted JSON for bench --json and preserves valid JSON', async () => {
+    const captured = createCapturedIo();
+    const customSecret = 'bench-secret-token-xyz-7890';
+
+    const code = await runCli(['bench', '--json'], captured.io, {
+      cwd: '/repo',
+      env: { PREFLIGHT_API_KEY: customSecret },
+      createClient: (opts) => createFakeClient(opts),
+      runBenchFn: async (_opts, _client, meta) =>
+        makeBenchReport(
+          {
+            casesDir: `/repo/cases/${customSecret}`,
+            writtenFiles: {
+              summaryPath: `/repo/out/${customSecret}/summary.md`,
+              resultsPath: '/repo/out/results.json',
+            },
+          },
+          meta,
+        ),
+    });
+
+    expect(code).toBe(0);
+    expect(captured.stderr).toEqual([]);
+    const rawJson = captured.stdout.join('\n');
+    expect(rawJson).not.toContain(customSecret);
+    expect(rawJson).toContain('[REDACTED]');
+    const parsed = JSON.parse(rawJson) as BenchReport;
+    expect(parsed.mode).toBe('triage');
+    expect(parsed.provider).toBe('ollama');
+    expect(parsed.casesDir).toContain('[REDACTED]');
+    expect(parsed.casesDir).not.toContain(customSecret);
+    expect(parsed.writtenFiles?.summaryPath).toContain('[REDACTED]');
+    expect(parsed.writtenFiles?.summaryPath).not.toContain(customSecret);
+    expect(parsed.metrics.errors).toBe(0);
+  });
+
+  it('redacts env secrets from human-readable bench output', async () => {
+    const captured = createCapturedIo();
+    const customSecret = 'bench-human-secret-5555';
+
+    const code = await runCli(['bench'], captured.io, {
+      cwd: '/repo',
+      env: { GROQ_API_KEY: customSecret },
+      createClient: (opts) => createFakeClient(opts),
+      runBenchFn: async (_opts, _client, meta) =>
+        makeBenchReport(
+          {
+            writtenFiles: {
+              summaryPath: `/tmp/${customSecret}/summary.md`,
+              resultsPath: `/tmp/${customSecret}/results.json`,
+            },
+          },
+          meta,
+        ),
+    });
+
+    const output = captured.stdout.join('\n');
+    expect(code).toBe(0);
+    expect(output).not.toContain(customSecret);
+    expect(output).toContain('[REDACTED]');
+    expect(captured.stderr).toEqual([]);
+  });
+
+  it('forwards --provider, --model, --cases-dir, --case, --status, --language, --limit, --out, and --think', async () => {
+    const captured = createCapturedIo();
+    let capturedClientOpts: OpenAICompatibleClientOptions | undefined;
+    let capturedBenchOpts: BenchOptions | undefined;
+
+    const code = await runCli(
+      [
+        'bench',
+        '--provider',
+        'groq',
+        '--model',
+        'llama-3.3-70b-versatile',
+        '--cases-dir',
+        'custom/cases',
+        '--case',
+        'fail-01-express-pr-7531',
+        '--status',
+        'fail',
+        '--language',
+        'javascript',
+        '--limit',
+        '3',
+        '--out',
+        'bench/results',
+        '--think',
+      ],
+      captured.io,
+      {
+        cwd: '/workspace/app',
+        env: { GROQ_API_KEY: 'test-groq-key' },
+        createClient: (opts) => {
+          capturedClientOpts = opts;
+          return createFakeClient(opts);
+        },
+        runBenchFn: async (opts, _client, meta) => {
+          capturedBenchOpts = opts;
+          return makeBenchReport({}, meta);
+        },
+      },
+    );
+
+    expect(code).toBe(0);
+    expect(capturedClientOpts?.provider).toBe('groq');
+    expect(capturedClientOpts?.model).toBe('llama-3.3-70b-versatile');
+    expect(capturedBenchOpts).toEqual({
+      cwd: '/workspace/app',
+      casesDir: path.resolve('/workspace/app', 'custom/cases'),
+      caseId: 'fail-01-express-pr-7531',
+      status: 'fail',
+      language: 'javascript',
+      limit: 3,
+      outDir: path.resolve('/workspace/app', 'bench/results'),
+      think: true,
+    });
+    expect(captured.stderr).toEqual([]);
+  });
+
+  it('supports = flag syntax and case-insensitive --status values for bench', async () => {
+    const statuses: readonly BenchStatusFilter[] = ['fail', 'pass', 'all'];
+    for (const status of statuses) {
+      const captured = createCapturedIo();
+      let capturedBenchOpts: BenchOptions | undefined;
+
+      const code = await runCli(
+        [
+          '--provider=gemini',
+          '--model=gemini-2.5-flash',
+          '--cases-dir=cases-alt',
+          '--case=pass-01-express-pr-7578',
+          `--status=${status.toUpperCase()}`,
+          '--language=ts',
+          '--limit=10',
+          '--out=out-dir',
+          '--think',
+          '--json',
+          'bench',
+        ],
+        captured.io,
+        {
+          cwd: '/repo',
+          env: {},
+          createClient: (opts) => createFakeClient(opts),
+          runBenchFn: async (opts, _client, meta) => {
+            capturedBenchOpts = opts;
+            return makeBenchReport({}, meta);
+          },
+        },
+      );
+
+      expect(code).toBe(0);
+      expect(capturedBenchOpts).toEqual({
+        cwd: '/repo',
+        casesDir: path.resolve('/repo', 'cases-alt'),
+        caseId: 'pass-01-express-pr-7578',
+        status,
+        language: 'ts',
+        limit: 10,
+        outDir: path.resolve('/repo', 'out-dir'),
+        think: true,
+      });
+      expect(captured.stderr).toEqual([]);
+    }
+  });
+
+  it('exits 1 when report.metrics.errors > 0 in both human and --json modes', async () => {
+    for (const argv of [['bench'], ['bench', '--json']]) {
+      const captured = createCapturedIo();
+      const code = await runCli(argv, captured.io, {
+        cwd: '/repo',
+        env: {},
+        createClient: (opts) => createFakeClient(opts),
+        runBenchFn: async (_opts, _client, meta) =>
+          makeBenchReport({ errors: 2 }, meta),
+      });
+
+      expect(code).toBe(1);
+      expect(captured.stdout.length).toBeGreaterThan(0);
+      expect(captured.stderr).toEqual([]);
+      if (argv.includes('--json')) {
+        const parsed = JSON.parse(captured.stdout.join('\n')) as BenchReport;
+        expect(parsed.metrics.errors).toBe(2);
+      }
+    }
+  });
+
+  it('exits 1 with a redacted error on stderr when runBenchFn throws', async () => {
+    const captured = createCapturedIo();
+    const customSecret = 'bench-throw-secret-4242';
+
+    const code = await runCli(['bench'], captured.io, {
+      cwd: '/repo',
+      env: { PREFLIGHT_API_KEY: customSecret },
+      createClient: (opts) => createFakeClient(opts),
+      runBenchFn: async () => {
+        throw new Error(`Benchmark failed using ${customSecret}`);
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(captured.stdout).toEqual([]);
+    const stderr = captured.stderr.join('\n');
+    expect(stderr).toContain('Error:');
+    expect(stderr).toContain('[REDACTED]');
+    expect(stderr).not.toContain(customSecret);
   });
 });
 
@@ -539,6 +854,27 @@ describe('preflight CLI validation and secret redaction', () => {
       { argv: ['check', '--timeout', '0'], expectedError: 'Invalid value for --timeout' },
       { argv: ['check', '--timeout', '-5'], expectedError: 'Invalid value for --timeout' },
       { argv: ['check', '--timeout=abc'], expectedError: 'Invalid value for --timeout' },
+      { argv: ['bench', '--cases-dir'], expectedError: 'Missing value for --cases-dir' },
+      { argv: ['bench', '--cases-dir='], expectedError: 'Missing value for --cases-dir' },
+      { argv: ['bench', '--cases-dir', '--json'], expectedError: 'Missing value for --cases-dir' },
+      { argv: ['bench', '--case'], expectedError: 'Missing value for --case' },
+      { argv: ['bench', '--case='], expectedError: 'Missing value for --case' },
+      { argv: ['bench', '--status'], expectedError: 'Missing value for --status' },
+      { argv: ['bench', '--status='], expectedError: 'Missing value for --status' },
+      { argv: ['bench', '--status', '--json'], expectedError: 'Missing value for --status' },
+      { argv: ['bench', '--status', 'invalid'], expectedError: 'Invalid value for --status' },
+      { argv: ['bench', '--status=broken'], expectedError: 'Invalid value for --status' },
+      { argv: ['bench', '--language'], expectedError: 'Missing value for --language' },
+      { argv: ['bench', '--language='], expectedError: 'Missing value for --language' },
+      { argv: ['bench', '--limit'], expectedError: 'Missing value for --limit' },
+      { argv: ['bench', '--limit='], expectedError: 'Missing value for --limit' },
+      { argv: ['bench', '--limit', '--json'], expectedError: 'Missing value for --limit' },
+      { argv: ['bench', '--limit', '0'], expectedError: 'Invalid value for --limit' },
+      { argv: ['bench', '--limit', '-3'], expectedError: 'Invalid value for --limit' },
+      { argv: ['bench', '--limit=2.5'], expectedError: 'Invalid value for --limit' },
+      { argv: ['bench', '--limit=abc'], expectedError: 'Invalid value for --limit' },
+      { argv: ['bench', '--out'], expectedError: 'Missing value for --out' },
+      { argv: ['bench', '--out='], expectedError: 'Missing value for --out' },
     ];
 
     for (const testCase of cases) {
