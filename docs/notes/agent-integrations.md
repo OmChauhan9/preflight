@@ -75,21 +75,22 @@ Because `skills/preflight/SKILL.md` uses standard frontmatter and invokes the st
 - **Sources:**
   - [OpenClaw Skills Documentation (`docs.openclaw.ai/tools/skills`)](https://docs.openclaw.ai/tools/skills)
 
-### 2.5 Google Antigravity (AGY)
+### 2.5 Google Antigravity (AGY) & Other `SKILL.md`-Compatible Harnesses
 
-- **Skill Locations:**
-  - Workspace-scoped: `.agent/skills/preflight/SKILL.md`
-  - User-scoped: `<config>/skills/preflight/SKILL.md`
-- **Invocation Behavior:**
-  - Antigravity indexes `SKILL.md` frontmatter (`name`, `description`) and instructs the agent to read `SKILL.md` before executing the task.
-- **Sources:**
-  - [Agent Skills Specification (`agentskills.io/specification`)](https://agentskills.io/specification)
+- **Skill File Format:**
+  - Consumes the standard `SKILL.md` YAML frontmatter (`name`, `description`) and Markdown instructions defined by the open Agent Skills specification.
+  - *Source (SKILL.md format only):* [Agent Skills Format Specification (`agentskills.io/specification`)](https://agentskills.io/specification)
+- **Skill Discovery Paths (Harness-Configuration Dependent):**
+  - Unlike `agentskills.io` (which standardizes the `SKILL.md` file format rather than mandating a single host-tool directory path), local discovery directories depend on the specific harness version and user/workspace configuration (commonly `.agent/skills/preflight/SKILL.md`, `.agents/skills/preflight/SKILL.md`, or the user's configured skills directory; see [`docs/agent-setup.md`](../agent-setup.md)).
 
 ---
 
 ## 3. Universal CLI `--json` Contract & Direct Shell Fallback
 
-Per [ADR-004](../DECISIONS.md#adr-004-generic-agent-skill-skillspreflightskillmd--optional-git-pre-push-hook), any coding agent — even one without `SKILL.md` discovery — can invoke Preflight directly via its shell tool:
+Per [ADR-004](../DECISIONS.md#adr-004-generic-agent-skill-skillspreflightskillmd--optional-git-pre-push-hook), any coding agent — even one without `SKILL.md` discovery — can invoke Preflight directly via its shell tool.
+
+- **Current v0.1.0 Scaffold Behavior:** `skills/preflight/SKILL.md` runs `preflight check` (with fallbacks to `node dist/cli.js check` and `npx --no-install preflight check`) and reports `stdout`, `stderr`, and the exit code verbatim (currently printing `not implemented` with exit code `0`).
+- **Planned Phase 1–2 JSON Contract:** Once the core pipeline lands, agents invoke:
 
 ```bash
 # Pre-push verification

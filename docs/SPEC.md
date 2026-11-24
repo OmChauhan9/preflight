@@ -153,13 +153,13 @@ Fast post-failure diagnosis and verified patch suggestion:
 
 ### 3.1 Standalone CLI (`preflight`)
 
-Built on TypeScript + Node 22 (`>=22`).
+Built on TypeScript + Node 22 (`>=22`). *(Implementation status note: In the current v0.1.0 Phase 0 scaffold (`src/cli.ts`), `preflight check`, `preflight explain`, and `preflight bench` parse flags and print `not implemented` with exit code `0`; full stage execution lands in Phases 1–2.)*
 
 | Command | Description |
 | :--- | :--- |
-| `preflight check [options]` | Run the `Gather → Think → Verify` pipeline on the current working tree / branch diff and print check verdicts + Speed/Telemetry panel. |
-| `preflight explain <log-url-or-file> [options]` | Diagnose a failed CI run log against the repository diff, output root cause + suggested patch, and verify locally when possible. |
-| `preflight bench [options]` | Run the benchmark evaluation suite across `bench/cases/*.json` and output accuracy + latency metrics. |
+| `preflight check [options]` | Run the `Gather → Think → Verify` pipeline on the current working tree / branch diff and print check verdicts + Speed/Telemetry panel *(currently a `not implemented` stub exiting `0` in v0.1.0)*. |
+| `preflight explain <log-url-or-file> [options]` | Diagnose a failed CI run log against the repository diff, output root cause + suggested patch, and verify locally when possible *(currently a `not implemented` stub exiting `0` in v0.1.0)*. |
+| `preflight bench [options]` | Run the benchmark evaluation suite across `bench/cases/*.json` and output accuracy + latency metrics *(currently a `not implemented` stub exiting `0` in v0.1.0)*. |
 | `preflight init --hook` *(Planned in Phase 1)* | Install an optional local `.git/hooks/pre-push` hook that runs `preflight check` before pushing commits to a remote. |
 
 **Global CLI Flags:**
@@ -299,7 +299,7 @@ Preflight talks to all inference backends through a single `OpenAICompatibleClie
 
 | Preset | Default Base URL | Default Model | Provider API Key Env Var | Default Auth Requirement |
 | :--- | :--- | :--- | :--- | :--- |
-| **`ollama`** *(default)* | `http://localhost:11434/v1` | `qwen2.5-coder:7b` | *(none)* | None ($0 local daemon) |
+| **`ollama`** *(default)* | `http://localhost:11434/v1` | `qwen2.5-coder:7b` | `OLLAMA_API_KEY` *(optional)* | None ($0 local daemon; `Authorization` header omitted unless `PREFLIGHT_API_KEY`, `OLLAMA_API_KEY`, or `options.apiKey` is set) |
 | **`groq`** | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` | `GROQ_API_KEY` | Required (`Bearer <key>`) |
 | **`gemini`** | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash` | `GEMINI_API_KEY` | Required (`Bearer <key>`) |
 | **`openrouter`** | `https://openrouter.ai/api/v1` | `qwen/qwen-2.5-coder-32b-instruct:free` | `OPENROUTER_API_KEY` | Required (`Bearer <key>`) |
@@ -311,7 +311,7 @@ Preflight talks to all inference backends through a single `OpenAICompatibleClie
 
 | Parameter | Specification |
 | :--- | :--- |
-| **Config Precedence** | CLI flags (`--provider`, `--model`) → generic env vars (`PREFLIGHT_PROVIDER`, `PREFLIGHT_MODEL`, `PREFLIGHT_BASE_URL`, `PREFLIGHT_API_KEY`) → provider-specific env vars (`GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `CEREBRAS_API_KEY`) → preset defaults (`ollama`, `qwen2.5-coder:7b`, `http://localhost:11434/v1`). |
+| **Config Precedence** | CLI flags (`--provider`, `--model`) → generic env vars (`PREFLIGHT_PROVIDER`, `PREFLIGHT_MODEL`, `PREFLIGHT_BASE_URL`, `PREFLIGHT_API_KEY`) → provider-specific env vars (`OLLAMA_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `CEREBRAS_API_KEY`) → preset defaults (`ollama`, `qwen2.5-coder:7b`, `http://localhost:11434/v1`). |
 | **Concurrency** | **Single-flight (`concurrency = 1`)** per process via an internal FIFO mutex queue so sequential or benchmark calls never flood local hardware or free-tier cloud rate limits. |
 | **Input Context Budget** | **`<= 20,000` input tokens** per call via deterministic priority trimming in 5-item order: (1) `git diff`, (2) CI commands, (3) changed files' tests, (4) changed files, (5) neighbors — trimmed in reverse priority order. |
 | **Output Token Cap** | **`max_completion_tokens: ~1,500`** (`<= 2,000`), preventing runaway completions and respecting providers that pre-charge `max_completion_tokens` against per-minute token quotas. |
@@ -327,7 +327,7 @@ Preflight talks to all inference backends through a single `OpenAICompatibleClie
 1. **Phase 0 — Groundwork, Open-Source Pivot & Verified Benchmark Corpus (Complete):**
    - Architecture and technical specification (`docs/SPEC.md`, `docs/DECISIONS.md`, `docs/notes/providers.md`, `docs/notes/agent-integrations.md`).
    - Provider-agnostic `OpenAICompatibleClient` (`src/clients/`) supporting `ollama` ($0 local default), `groq`, `gemini`, `openrouter`, `openai`, `cerebras`, and `custom`.
-   - CLI entry point (`src/cli.ts`), portable Agent Skill (`skills/preflight/SKILL.md`, `docs/agent-setup.md`), and unit test suite.
+   - CLI entry point (`src/cli.ts`, with `check`, `explain`, and `bench` wired as `not implemented` stubs exiting `0`), portable Agent Skill (`skills/preflight/SKILL.md`, `docs/agent-setup.md`), and unit test suite.
    - Curated 35-case real GitHub PR benchmark corpus (`bench/cases/*.json`, `bench/README.md`) with 2 local `<1s` reproductions (`bench/REPRO.md`).
 2. **Phase 1 — Core `Gather → Think → Verify` & `Explain` Pipeline (Next):**
    - Implement `Gather` (git diff parser, JS/TS & Python static import graph, `.github/workflows/*.yml` command extractor, and 5-tier token trimmer).
