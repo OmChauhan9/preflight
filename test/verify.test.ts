@@ -293,6 +293,37 @@ describe('checkCommandAllowlist', () => {
         .allowed,
     ).toBe(false);
   });
+
+  it('enforces exact match for path-qualified python scripts while still scoping path-qualified python -m tools', () => {
+    const venvWorkflows = [
+      wf('.venv/bin/python script.py'),
+      wf('.venv/bin/python -m pytest'),
+    ];
+
+    expect(
+      checkCommandAllowlist('.venv/bin/python script.py', venvWorkflows)
+        .allowed,
+    ).toBe(true);
+    expect(
+      checkCommandAllowlist(
+        '.venv/bin/python script.py --extra-arg',
+        venvWorkflows,
+      ).allowed,
+    ).toBe(false);
+    expect(
+      checkCommandAllowlist('.venv/bin/python evil.py', venvWorkflows).allowed,
+    ).toBe(false);
+
+    const scopedPytest = checkCommandAllowlist(
+      '.venv/bin/python -m pytest tests/test_a.py',
+      venvWorkflows,
+    );
+    expect(scopedPytest.allowed).toBe(true);
+    if (scopedPytest.allowed) {
+      expect(scopedPytest.binary).toBe('.venv/bin/python');
+      expect(scopedPytest.args).toEqual(['-m', 'pytest', 'tests/test_a.py']);
+    }
+  });
 });
 
 describe('runVerify (unit tests with mocked spawnCommand)', () => {
