@@ -1,19 +1,19 @@
 # Preflight — Technical Specification
 
-> **Fast CI pre-checks for AI coding agents, powered by Kimi K3.1 Pro on Cerebras and the OpenClaw harness.**  
-> Built for the Cerebras × Kimi K3.1 Pro Hackathon (Nov 21–22, 2026).
+> **Local-first, $0 CI pre-checks and failure diagnosis for developers and AI coding agents.**  
+> Standalone MIT-licensed open-source CLI and portable Agent Skill (`https://github.com/OmChauhan9/preflight`).
 
 ---
 
 ## 1. Product Summary & Core Invariant
 
-AI coding agents iterate quickly in a local repository, commit or open a pull request, and then wait minutes for GitHub Actions CI to fail on a scoped test, typecheck, or lint error caused directly by their diff. Running the entire CI suite locally after every edit is too slow; skipping checks entirely leads to broken PRs.
+AI coding agents and developers iterate quickly in a local repository, commit or open a pull request, and then wait minutes for GitHub Actions CI to fail on a scoped test, typecheck, or lint error caused directly by their diff. Running the entire CI suite locally after every edit is too slow; skipping checks entirely leads to broken PRs.
 
-**Preflight** closes this feedback loop in seconds. Before an agent pushes code or opens a PR, Preflight inspects the local git diff, static import graph, and `.github/workflows/*.yml` definitions, asks **Kimi K3.1 Pro on Cerebras** which CI jobs and scoped commands are most likely affected by the change, executes only those safe, workflow-derived commands locally, and reports the actual command results and Cerebras latency breakdown. When CI has already failed remotely, `preflight explain` diagnoses the failure log against the diff, proposes a minimal fix, and verifies it locally when possible.
+**Preflight** closes this feedback loop in seconds at **$0 cost**. Before a developer or coding agent pushes code or opens a PR, Preflight inspects the local `git diff`, static import graph, and `.github/workflows/*.yml` definitions, asks a configured OpenAI-compatible LLM (defaulting to local **Ollama** with `qwen2.5-coder:7b`) which CI jobs and scoped commands are most likely affected by the change, executes only those safe, workflow-derived commands locally, and reports the actual command results and latency telemetry. When CI has already failed remotely, `preflight explain` diagnoses the failure log against the diff, proposes a minimal fix, and verifies it locally when possible.
 
 ### Core Invariant
 
-> **Kimi K3.1 Pro on Cerebras decides *what* to check; real commands and exit codes decide pass/fail. Preflight never claims "CI will pass".**
+> **An LLM decides *what* to check from the `git diff`, import graph, and `.github/workflows/*.yml`; real allowlisted scoped CI commands decide pass or fail via actual subprocess exit codes. Preflight never claims "CI will pass" — only "these checks passed" or "these checks failed".**
 
 - The LLM is used strictly for **triage, scoping, and root-cause explanation**: mapping a code diff and workflow definition to the highest-signal subset of checks, or diagnosing a failure log.
 - Pass/fail verdicts come **100% from real subprocess exit codes** of allowlisted commands executed in the repository.
@@ -25,7 +25,7 @@ AI coding agents iterate quickly in a local repository, commit or open a pull re
 
 Preflight operates as a four-stage pipeline (`Gather → Think → Verify`, plus on-demand `Explain`):
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ 1. GATHER (Plain Code)                                                  │
 │    • git diff vs base branch & changed file paths                       │
@@ -37,8 +37,11 @@ Preflight operates as a four-stage pipeline (`Gather → Think → Verify`, plus
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│ 2. THINK (Single Kimi K3.1 Pro Call on Cerebras)                        │
-│    • Model: moonshotai-kimi-k3.1-pro-trial (concurrency = 1)            │
+│ 2. THINK (Single LLM Call via OpenAICompatibleClient)                   │
+│    • Default preset: ollama (http://localhost:11434/v1,                 │
+│      model qwen2.5-coder:7b, $0 local-first, concurrency = 1)           │
+│    • Built-in presets: ollama, groq, gemini, openrouter,                │
+│      openai, cerebras, custom                                           │
 │    • Input: <= 20K tokens | max_completion_tokens: ~1,500               │
 │    • Reasoning: off by default (opt-in via --think)                     │
 │    • Plain-text JSON output contract:                                   │
@@ -59,7 +62,7 @@ Preflight operates as a four-stage pipeline (`Gather → Think → Verify`, plus
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ 4. EXPLAIN (preflight explain <CI log URL or file>)                     │
 │    • Fetch/read failing CI log + local git diff & workflow context      │
-│    • Single Kimi K3.1 Pro call → root cause + minimal suggested patch   │
+│    • Single LLM call → root cause + minimal suggested patch             │
 │    • Re-run the failing command locally when possible to verify fix     │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -72,15 +75,21 @@ Deterministic, zero-LLM local context collection:
 2. **Import Graph & Affected Tests:** Parses local JS/TS (`import`/`require`) and Python (`import`/`from ... import`) dependencies to identify test files that directly or transitively import modified source modules.
 3. **Workflow Command Extraction:** Parses `.github/workflows/*.yml` (and `.yaml`) files to extract job names, working directories, matrix hints, and `run:` shell steps (e.g., `npm test`, `npx vitest run`, `npm run typecheck`, `npm run lint`, `pytest`, `ruff check`, `mypy`).
 4. **Optional Recent CI Log:** If provided or available from recent failure state, attaches a bounded failure log excerpt.
-5. **Context Budgeting:** Priority-trims gathered context to guarantee the prompt stays within **<= 20,000 input tokens** using the 5-tier priority order defined in `BRIEF.md`: (1) `git diff`, (2) CI commands, (3) changed files' tests, (4) changed files, and (5) neighbors — trimmed in reverse priority order (dropping/truncating neighbors first, then full changed files, etc.; see Section 6).
+5. **Context Budgeting:** Priority-trims gathered context to guarantee the prompt stays within **`<= 20,000` input tokens** using the 5-tier priority order:
+   1. `(1) git diff`
+   2. `(2) CI commands`
+   3. `(3) changed files' tests`
+   4. `(4) changed files`
+   5. `(5) neighbors`
+   Trimming proceeds in reverse priority order (dropping/truncating `(5) neighbors` first, then `(4) changed files`, etc.; see Section 6).
 
-### Stage 2: Think (Single Kimi K3.1 Pro Call on Cerebras)
+### Stage 2: Think (Single OpenAI-Compatible LLM Call)
 
-A single inference call to `moonshotai-kimi-k3.1-pro-trial` on `https://api.cerebras.ai/v1/chat/completions`:
+A single inference call executed through `OpenAICompatibleClient` (`POST {baseUrl}/chat/completions`):
 
-- **Token Budget:** `<= 20,000` input tokens; `max_completion_tokens` capped at **`~1,500`** (preventing pre-charge exhaustion of the 100K tokens/min quota).
-- **Reasoning Mode:** Intended off by default (and enabled explicitly via `--think`) so latency stays ultra-low and completions are not truncated by reasoning tokens. Because standard Cerebras `kimi-k3.1-pro` defaults to `reasoning_effort: "max"` when omitted, the exact `reasoning_effort` parameter values (e.g., `"none"` vs `"low"` vs omitted) for `moonshotai-kimi-k3.1-pro-trial` are **UNCONFIRMED and must be verified at hackathon kickoff**. When `reasoning_format` is passed, use `reasoning_format: "parsed"` (not `"hidden"`, which Kimi K3.1 Pro does not support) so any thinking tokens are separated into `choices[0].message.reasoning`.
-- **Plain-Text JSON Contract:** Preflight does not depend on provider-specific tool calling (`tools`) or structured-output modes (`response_format: { type: "json_schema" }`). Instead, the system prompt specifies a strict plain-text JSON contract:
+- **Token Budget:** `<= 20,000` input tokens; `max_completion_tokens` capped at **`~1,500`** so outputs remain concise and fit comfortably within local model context budgets and cloud free-tier rate limits.
+- **Reasoning Mode:** Off by default (and enabled explicitly via `--think`) so latency stays low and completions are not truncated by long chain-of-thought traces.
+- **Plain-Text JSON Contract:** Preflight does not depend on provider-specific tool calling (`tools`) or structured-output modes (`response_format: { type: "json_schema" }`), ensuring uniform behavior across local Ollama models and cloud endpoints. Instead, the system prompt specifies a strict plain-text JSON contract:
 
 ```json
 {
@@ -106,8 +115,8 @@ A single inference call to `moonshotai-kimi-k3.1-pro-trial` on `https://api.cere
   - `commands[]`: Ordered list of scoped commands derived from the workflow commands to run in Verify.
   - `notes`: Short human- and agent-readable summary of what is being checked and why.
 - **Validation & Retry Policy:**
-  - Extract JSON object from the completion text (stripping optional markdown code fences if present) and validate all required fields and types.
-  - If JSON parsing or schema validation fails, perform **at most 1 retry**, passing the exact validation error message back to Kimi.
+  - Extract the JSON object from the completion text (stripping optional markdown code fences if present) and validate all required fields and types against the schema.
+  - If JSON parsing or schema validation fails, perform **at most 1 retry**, passing the exact validation error message back to the model.
   - If the retry also fails validation, abort the Think stage with a clear, structured error message rather than looping or silently guessing.
 
 ### Stage 3: Verify (Plain Code)
@@ -116,7 +125,7 @@ Safe, deterministic local command execution:
 
 1. **Workflow-Derived Allowlist:**
    - Every candidate command in `commands[]` is validated against the baseline CI commands parsed from `.github/workflows/*.yml` during Gather.
-   - A command is **allowed** only if it uses the **same tool and subcommand** as a workflow command (e.g., `vitest run`, `jest`, `pytest`, `eslint`, `ruff check`, `tsc --noEmit`, `npm test`, `npm run <script>`) and only narrows scope via safe file paths or test-name filters inside the repository.
+   - A command is **allowed** only if it uses the **same tool and subcommand** as a workflow command (e.g., `vitest run`, `mocha`, `jest`, `pytest`, `eslint`, `ruff check`, `tsc --noEmit`, `npm test`, `npm run <script>`) and only narrows scope via safe file paths or test-name filters inside the repository.
    - Any command containing arbitrary shell chaining (`;`, `&&`, `||`, `|`, `` ` ``, `$()`), redirection (`>`, `<`), path traversal (`..`), or binaries/subcommands absent from `.github/workflows/*.yml` is **refused and logged**.
 2. **Timeouts & Resource Limits:**
    - Each command runs with a configurable per-command timeout (e.g., 60s default) and bounded stdout/stderr capture.
@@ -131,8 +140,8 @@ Safe, deterministic local command execution:
 
 Fast post-failure diagnosis and verified patch suggestion:
 
-1. **Input:** Accepts either a GitHub Actions run/job URL (fetched via `gh` CLI / GitHub API) or a path to a local CI log file, combined with the local git diff and `.github/workflows/*.yml`.
-2. **Diagnosis Call:** Sends the trimmed failure log excerpt + diff to Kimi K3.1 Pro on Cerebras (single call, `<= 20K` input tokens, plain-text JSON output) to produce:
+1. **Input:** Accepts either a GitHub Actions run/job URL (fetched via `gh` CLI / GitHub API) or a path to a local CI log file, combined with the local `git diff` and `.github/workflows/*.yml`.
+2. **Diagnosis Call:** Sends the trimmed failure log excerpt + diff to the configured LLM via `OpenAICompatibleClient` (single call, `<= 20K` input tokens, plain-text JSON output + 1 retry on schema error) to produce:
    - `root_cause`: exact file, symbol/line, and explanation of why the diff triggered the CI failure.
    - `failing_command`: the workflow command that failed.
    - `suggested_patch`: minimal unified diff or concrete code change to resolve the failure.
@@ -142,88 +151,97 @@ Fast post-failure diagnosis and verified patch suggestion:
 
 ## 3. Product Surfaces
 
-### 3.1 CLI (`preflight`)
+### 3.1 Standalone CLI (`preflight`)
 
-Built on TypeScript + Node 22 (`>=22`).  
-*Runtime compatibility note:* Preflight CLI targets Node `>=22` (CI tested on Node 22), while the OpenClaw harness requires Node `24.16.0+` or `26.1.0+` locally.
+Built on TypeScript + Node 22 (`>=22`).
 
 | Command | Description |
 | :--- | :--- |
-| `preflight check [options]` | Run the `Gather → Think → Verify` pipeline on the current working tree / branch diff and print check verdicts + Speed panel. |
+| `preflight check [options]` | Run the `Gather → Think → Verify` pipeline on the current working tree / branch diff and print check verdicts + Speed/Telemetry panel. |
 | `preflight explain <log-url-or-file> [options]` | Diagnose a failed CI run log against the repository diff, output root cause + suggested patch, and verify locally when possible. |
 | `preflight bench [options]` | Run the benchmark evaluation suite across `bench/cases/*.json` and output accuracy + latency metrics. |
+| `preflight init --hook` *(Planned in Phase 1)* | Install an optional local `.git/hooks/pre-push` hook that runs `preflight check` before pushing commits to a remote. |
 
 **Global CLI Flags:**
 
-- `--provider <cerebras|gpu>`: Select inference provider (`cerebras` by default using `moonshotai-kimi-k3.1-pro-trial`; `gpu` / `moonshot` uses Moonshot's standard GPU-backed Kimi API for side-by-side latency comparison).
-- `--json`: Emit machine-readable JSON output containing stage results, command exit codes, Think payload, and Speed panel telemetry.
-- `--think`: Opt-in to enable model reasoning (`reasoning_effort`) during the Think / Explain call.
+- `--provider <ollama|groq|gemini|openrouter|openai|cerebras|custom>`: Select the OpenAI-compatible inference provider preset (defaults to `ollama` or `PREFLIGHT_PROVIDER`).
+- `--model <model-id>`: Override the model identifier for the selected provider (or set `PREFLIGHT_MODEL`).
+- `--json`: Emit machine-readable JSON output containing stage results, command exit codes, Think payload, and Speed/Telemetry metrics.
+- `--think`: Opt in to enable model reasoning during the Think / Explain call.
 - `--help`, `-h`: Display CLI usage information.
 
-### 3.2 OpenClaw Harness Integration
+### 3.2 Generic Agent Skill (`skills/preflight/SKILL.md` & `docs/agent-setup.md`)
 
-Preflight is designed to run inside the **OpenClaw** coding agent inner loop configured with `@openclaw/cerebras-provider` (`moonshotai-kimi-k3.1-pro-trial` via `CEREBRAS_API_KEY`):
+Preflight packages a cross-platform Agent Skill adhering to the open [Agent Skills specification](https://agentskills.io/specification) (`skills/preflight/SKILL.md`, documented in [`docs/agent-setup.md`](./agent-setup.md) and [`docs/notes/agent-integrations.md`](./notes/agent-integrations.md)):
 
-1. **Preferred Mechanism — OpenClaw Tool / Skill Registration:**
-   - Register Preflight as a native OpenClaw skill/tool that invokes `preflight check --json` and returns the structured JSON report directly to the OpenClaw agent before committing, pushing, or opening a PR.
+1. **Supported Coding Agents:**
+   - **Claude Code** (`.claude/skills/preflight/SKILL.md`)
+   - **OpenAI Codex** (`.codex/skills/preflight/SKILL.md` or `.agents/skills/preflight/SKILL.md`)
+   - **Cursor** (`.cursor/skills/preflight/SKILL.md` or `.agents/skills/preflight/SKILL.md`)
+   - **OpenClaw** (`<workspace>/skills/preflight/SKILL.md` or `~/.openclaw/skills/preflight/SKILL.md`)
+   - **Antigravity** (`.agent/skills/preflight/SKILL.md`)
 2. **Fallback Mechanism — Direct Shell Invocation:**
-   - If skill/tool registration encounters harness friction, the OpenClaw agent invokes `preflight check --json` via its built-in shell execution tool as a pre-push gate.
+   - Any coding agent, IDE task runner, or automation script can invoke `preflight check --json` and `preflight explain <log> --json` directly via a standard shell tool without skill registration.
 
-### 3.3 Speed Panel Telemetry
+### 3.3 Optional Git `pre-push` Hook (`preflight init --hook`, Planned in Phase 1)
 
-Every human-readable CLI execution displays a **Speed Panel** (and `--json` includes the equivalent structured `telemetry` object) highlighting Cerebras wafer-scale inference speed vs local verification time:
+For developers and agent workflows that want automatic enforcement on every `git push` without manual agent prompting:
 
-- **Token Usage:**
+- `preflight init --hook` installs a lightweight `.git/hooks/pre-push` script.
+- On `git push`, the hook invokes `preflight check` against the commits being pushed.
+- If all allowlisted checks exit with `0`, the push proceeds normally; if any executed check fails with a non-zero exit code, the push is aborted with a diagnostic report (and can be bypassed explicitly with `git push --no-verify` when needed).
+
+### 3.4 Speed & Telemetry Panel
+
+Every human-readable CLI execution displays a **Speed & Telemetry Panel** (and `--json` includes the equivalent structured `telemetry` object) so users can compare local models and cloud providers:
+
+- **Provider & Model Metadata:**
+  - `provider` preset name, resolved `model` ID, and endpoint base URL.
+- **Token Usage (`usage`):**
   - Input tokens (`usage.prompt_tokens`)
   - Output tokens (`usage.completion_tokens`)
   - Total tokens (`usage.total_tokens`)
-- **Inference Throughput:**
-  - `tok/s`: Calculated from Cerebras server timing as `usage.completion_tokens / time_info.completion_time` (or client wall-clock completion tokens/sec when `time_info` is unavailable on `--provider gpu`).
-- **Cerebras `time_info` Breakdown (4 fields):**
-  - `queue_time` (seconds)
-  - `prompt_time` (seconds)
-  - `completion_time` (seconds)
-  - `total_time` (seconds)
+- **Inference Throughput (`tok/s`):**
+  - Calculated from server timing as `usage.completion_tokens / time_info.completion_time` when the provider returns `time_info` (e.g., Cerebras), or from client-measured `wallTimeMs` (`usage.completion_tokens / (wallTimeMs / 1000)`) across Ollama, Groq, Gemini, OpenRouter, OpenAI, and custom endpoints.
+- **Optional Provider `time_info` Breakdown (when returned by provider):**
+  - `queue_time`, `prompt_time`, `completion_time`, `total_time` (in seconds).
 - **End-to-End Stage Wall Time Split:**
-  - `gather_ms`: Local git diff, import graph, and workflow parsing duration
-  - `think_ms`: End-to-end HTTP call duration for Kimi inference
+  - `gather_ms`: Local `git diff`, import graph, and workflow parsing duration
+  - `think_ms`: End-to-end HTTP call duration (`wallTimeMs`) for LLM inference
   - `verify_ms`: Local command execution duration
   - `total_wall_ms`: Overall wall-clock runtime
-
-### 3.4 `--provider` GPU Provider Comparison
-
-Running `preflight check --provider cerebras` vs `preflight check --provider gpu` (or running `preflight bench` across both providers) sends the identical prompt to:
-
-- **Cerebras (`cerebras`):** `https://api.cerebras.ai/v1` (`moonshotai-kimi-k3.1-pro-trial`)
-- **Standard GPU Provider (`gpu`):** Moonshot Kimi OpenAI-compatible API (`https://api.moonshot.ai/v1`)
-
-This demonstrates why wafer-scale inference matters in an interactive coding-agent pre-check loop: multi-second Think latency on traditional GPU endpoints turns pre-checks into friction, whereas sub-second/low-second Cerebras Think latency disappears into the agent loop.
 
 ---
 
 ## 4. Non-Goals
 
-To keep scope disciplined for the weekend hackathon and preserve the core trust invariant, Preflight explicitly **does not** include:
+To keep Preflight fast, trustworthy, and **$0** to run, the project explicitly **does not** include:
 
-1. **No PR Review Bot:** Not a GitHub webhook comment bot that posts generic code review comments on PRs.
-2. **No GitHub App:** No hosted multi-tenant GitHub App, OAuth installation flow, or database backend.
-3. **No Web Dashboard (Unless Time Remains):** CLI + OpenClaw terminal workflow is primary; a web UI is strictly out of scope unless all core features, benchmarks, and the 60s video are completely finished.
-4. **Never Claim "Passes CI":** Preflight only runs scoped local checks and reports `"these checks passed / these checks failed"`. It never claims full remote CI will pass (since remote CI may involve secrets, multi-OS matrices, external services, or unrun jobs).
+1. **No PR Review Bot:** Not a GitHub webhook comment bot that posts generic prose review comments on pull requests.
+2. **No Hosted GitHub App or Paid SaaS Backend:** No multi-tenant cloud service, OAuth installation flow, or database backend. Preflight runs 100% locally in your working tree or CLI environment at $0 infrastructure cost.
+3. **No Web Dashboard:** Preflight is purpose-built for terminal workflows, git hooks, and AI coding agents via CLI and `--json`.
+4. **Never Claim "CI Will Pass":** Preflight only runs scoped local checks and reports `"these checks passed / these checks failed"`. It never claims full remote CI will pass (since remote CI may involve deployment secrets, multi-OS matrices, external service containers, or unrun jobs).
 
 ---
 
 ## 5. Benchmark Specification (`bench/`)
 
-Preflight evaluates triage quality, root-cause diagnosis, false-alarm rate, and speed on a curated dataset of real public GitHub pull requests stored in `bench/cases/*.json` and documented in `bench/README.md`.
+Preflight evaluates triage quality, root-cause diagnosis, false-alarm rate, and inference latency on a curated dataset of real public GitHub pull requests stored in `bench/cases/*.json` and documented in [`bench/README.md`](../bench/README.md) and [`bench/REPRO.md`](../bench/REPRO.md).
 
-### 5.1 Dataset Composition
+### 5.1 Verified Dataset Composition (35 Real GitHub PRs)
 
-- **20–30 Failed-CI PRs (`fail-*.json`):**
-  - Sourced from small, clean public JavaScript/TypeScript or Python repositories using GitHub Actions (`.github/workflows/*.yml`) with fast local test suites (`< 2 minutes` to install and run locally).
-  - Every failed PR must have a **clear root cause directly in the changed code** (unit test failure, typecheck error, lint violation, or assertion failure caused by the PR diff).
-  - **Excluded:** CI infrastructure outages, missing secrets/permissions, flaky unrelated tests, or noisy dependency-bump PRs.
-- **~10 Passing-CI PRs (`pass-*.json`):**
-  - Sourced from the same repositories where CI checks passed on `head_sha`, used to measure false-alarm behaviour and check scoping overhead.
+The benchmark corpus in `bench/cases/` comprises **35 hand-verified GitHub Pull Request CI runs** across **10 open-source JavaScript/TypeScript and Python repositories** (`expressjs/express`, `colinhacks/zod`, `unjs/h3`, `fastify/fastify`, `axios/axios`, `pallets/werkzeug`, `pallets/jinja`, `pallets/click`, `encode/httpx`, and `pydantic/pydantic-settings`):
+
+- **25 Failed-CI PRs (`fail-01` .. `fail-25`):**
+  - **14 JavaScript/TypeScript cases** (9 failed, 5 passing) and **21 Python cases** (16 failed, 5 passing) overall.
+  - Across the 25 failed cases: **13 unit test failures** (`unit_test`), **5 typecheck failures** (`typecheck`), and **7 lint/format failures** (`lint_format`).
+  - Every failed PR has a **clear root cause directly in the changed code** verified against both the GitHub Actions failure log and the commit diff (`base_sha..head_sha`).
+  - **Excluded (12 raw candidates rejected during curation):** CI runner provisioning outages, upstream packaging/bundler drift unrelated to the PR diff, flaky timing warnings, and spam/duplicate formatting PRs (documented in [`bench/README.md`](../bench/README.md)).
+- **10 Passing-CI PRs (`pass-01` .. `pass-10`):**
+  - One passing PR from each of the 10 repositories where CI checks passed on `head_sha`, used to measure false-alarm behavior and check scoping precision.
+- **2 Locally Reproduced `<1s` Anchor Cases ([`bench/REPRO.md`](../bench/REPRO.md)):**
+  - `fail-01-express-pr-7531` (`expressjs/express#7531`): `npx mocha test/app.listRoutes.js` reproduces exit code `9` in **`0.84s`** command wall time.
+  - `fail-10-werkzeug-pr-3269` (`pallets/werkzeug#3269`): `pytest tests/sansio/test_accept_mimetype_cases.py` reproduces exit code `1` in **`0.80s`** command wall time.
 
 ### 5.2 Per-Case JSON Schema
 
@@ -231,26 +249,26 @@ Each file in `bench/cases/<id>.json` conforms to:
 
 ```json
 {
-  "id": "fail-01-owner-repo-pr-123",
+  "id": "fail-01-express-pr-7531",
   "status": "fail",
-  "repo": "owner/name",
-  "pr": 123,
-  "pr_url": "https://github.com/owner/name/pull/123",
-  "language": "typescript",
-  "base_sha": "0123456789abcdef0123456789abcdef01234567",
-  "head_sha": "89abcdef0123456789abcdef0123456789abcdef",
+  "repo": "expressjs/express",
+  "pr": 7531,
+  "pr_url": "https://github.com/expressjs/express/pull/7531",
+  "language": "javascript",
+  "base_sha": "0dee2c52c7c873498f8ed7d8ee4ddd0a04d3ada8",
+  "head_sha": "5ebf19adabb6e0741eda1fecadecee9f6543ba49",
   "workflow_file": ".github/workflows/ci.yml",
-  "run_id": 123456789,
-  "run_url": "https://github.com/owner/name/actions/runs/123456789",
-  "failing_job": "test",
-  "failing_command": "npm test",
+  "run_id": 44581270820,
+  "run_url": "https://github.com/expressjs/express/actions/runs/44581270820",
+  "failing_job": "Node.js 18 - ubuntu-latest",
+  "failing_command": "npm run test-ci",
   "log_excerpt": "Verbatim 10-40 line excerpt from the failed GitHub Actions job log...",
-  "changed_files": ["src/index.ts"],
-  "root_cause_label": "src/index.ts: parseConfig throws TypeError on undefined options argument",
+  "changed_files": ["lib/application.js", "package.json", "test/app.listRoutes.js"],
+  "root_cause_label": "unit_test: lib/application.js mount/listRoutes sub-app router handling causes 9 test failures in test/app.listRoutes.js",
   "label_verified": {
     "checked_against_log": true,
     "checked_against_diff": true,
-    "notes": "Confirmed diff in src/index.ts removed default parameter value matching TypeError in test log"
+    "notes": "Verified 9 Mocha failures in test/app.listRoutes.js directly match changes to lib/application.js and test/app.listRoutes.js in diff"
   }
 }
 ```
@@ -263,87 +281,58 @@ Each file in `bench/cases/<id>.json` conforms to:
 2. **Local Reproduction & Catch Rate:** On locally checked-out benchmark cases, fraction where executing Verify's selected commands catches the non-zero exit code before push.
 3. **Passing-PR Precision / False-Alarm Rate:** On passing-CI cases (when reproduced locally), fraction where Verify executes cleanly without false failures while running a scoped subset of checks.
 4. **Root-Cause Explanation Accuracy:** Fraction of failed-CI cases where `preflight explain` identifies the same root-cause file/symbol/defect as `root_cause_label`.
-5. **Speed & Throughput Telemetry:** Median and p95 `tok/s`, `think_ms`, `time_info.completion_time`, and total wall time on Cerebras vs `--provider gpu`.
+5. **Speed & Throughput Telemetry:** Median and p95 `tok/s`, `think_ms`, optional `time_info.completion_time`, and total wall time across configured providers (`--provider ollama`, `groq`, `gemini`, `openrouter`, `openai`, `cerebras`, etc.).
 
 ### 5.4 Benchmark Honesty Rule
 
-- Every case label in `bench/cases/` must be verified against **both** the actual GitHub Actions failure log and the exact commit diff (`base_sha..head_sha` at the time CI failed, even if the PR was later amended and merged).
-- At least 2 failed-CI benchmark cases are reproduced end-to-end locally during Phase 0 groundwork to validate local test execution feasibility.
-- Never fabricate, extrapolate, or cherry-pick benchmark numbers. Always report exact denominators and distinguish static diff+log evaluation across all cases from full local checkout command execution.
+- Every case label in `bench/cases/` is verified against **both** the actual GitHub Actions failure log and the exact commit diff (`base_sha..head_sha` at the time CI failed, even if the PR was later amended and merged).
+- Two failed-CI benchmark cases (`fail-01-express-pr-7531` and `fail-10-werkzeug-pr-3269`) have been reproduced end-to-end locally in [`bench/REPRO.md`](../bench/REPRO.md) to validate `<1s` scoped command execution.
+- Never fabricate, extrapolate, or cherry-pick benchmark numbers. Live benchmark scores will be reported only after `preflight bench` runs against the completed Phase 1–2 pipeline, always stating exact denominators and distinguishing static diff+log evaluation across all 35 cases from full local checkout command execution.
 
 ---
 
-## 6. Platform Facts & Operational Limits
+## 6. Provider Architecture & Operational Limits
+
+Preflight talks to all inference backends through a single `OpenAICompatibleClient` targeting `POST {baseUrl}/chat/completions`.
+
+### 6.1 Built-In Provider Presets
+
+| Preset | Default Base URL | Default Model | Provider API Key Env Var | Default Auth Requirement |
+| :--- | :--- | :--- | :--- | :--- |
+| **`ollama`** *(default)* | `http://localhost:11434/v1` | `qwen2.5-coder:7b` | *(none)* | None ($0 local daemon) |
+| **`groq`** | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` | `GROQ_API_KEY` | Required (`Bearer <key>`) |
+| **`gemini`** | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash` | `GEMINI_API_KEY` | Required (`Bearer <key>`) |
+| **`openrouter`** | `https://openrouter.ai/api/v1` | `qwen/qwen-2.5-coder-32b-instruct:free` | `OPENROUTER_API_KEY` | Required (`Bearer <key>`) |
+| **`openai`** | `https://api.openai.com/v1` | `gpt-4o-mini` | `OPENAI_API_KEY` | Required (`Bearer <key>`) |
+| **`cerebras`** | `https://api.cerebras.ai/v1` | `llama-3.3-70b` | `CEREBRAS_API_KEY` | Required (`Bearer <key>`) |
+| **`custom`** | `PREFLIGHT_BASE_URL` | `PREFLIGHT_MODEL` | `PREFLIGHT_API_KEY` | Optional (`Bearer <key>` when set) |
+
+### 6.2 Configuration & Operational Safeguards
 
 | Parameter | Specification |
 | :--- | :--- |
-| **Cerebras Base URL** | `https://api.cerebras.ai/v1` (OpenAI-compatible `POST /chat/completions`) |
-| **Cerebras Auth Env Var** | `CEREBRAS_API_KEY` (`Authorization: Bearer <key>`) |
-| **Cerebras Model ID** | `moonshotai-kimi-k3.1-pro-trial` |
-| **Rate Limits** | **100 requests / minute** and **100,000 tokens / minute** |
-| **Concurrency** | **Single-flight (`concurrency = 1`)** per process via an internal mutex queue |
-| **Pre-Charged Completion Quota** | Cerebras pre-charges the full `max_completion_tokens` value against the 100K tok/min limit when a request starts. Keep `max_completion_tokens` at **`~1,500`** (`<= 2,000`). |
-| **Input Context Budget** | **`<= 20,000` input tokens** per call via deterministic priority trimming in 5-item order: (1) `git diff`, (2) CI commands, (3) changed files' tests, (4) changed files, (5) neighbors — trimmed in reverse priority order to stay `<= ~20K` input tokens. |
-| **HTTP 429 Handling** | Honor `Retry-After` header when present; otherwise bounded exponential backoff with random jitter |
-| **Reasoning Mode** | Per `BRIEF.md`, reasoning is intended off by default and enabled via `--think`. Because standard Cerebras `kimi-k3.1-pro` defaults to `reasoning_effort: "max"`, the exact `reasoning_effort` parameter values (e.g., `"none"` vs `"low"` vs omitted) for `moonshotai-kimi-k3.1-pro-trial` are **UNCONFIRMED and must be verified at hackathon kickoff** (Sat Nov 21, 10:00 AM PT). Pass `reasoning_format: "parsed"` (not `"hidden"`, which Kimi K3.1 Pro does not support). |
-| **Structured Outputs / Tool Calling** | Do **not** depend on API `tools` or `response_format: json_schema`. Use plain-text JSON prompts + local schema validation + 1 retry. |
-| **SSE Streaming Caveat** | Cerebras SSE streams can pack multiple tokens into a single SSE chunk; always use `usage` + `time_info` from the API response for token/s calculation rather than counting SSE events. |
-| **GPU Comparison Provider** | Moonshot Kimi API (`https://api.moonshot.ai/v1`, `MOONSHOT_API_KEY`, configurable `MOONSHOT_MODEL`). Measures client wall-clock time since `time_info` is Cerebras-specific. |
+| **Config Precedence** | CLI flags (`--provider`, `--model`) → generic env vars (`PREFLIGHT_PROVIDER`, `PREFLIGHT_MODEL`, `PREFLIGHT_BASE_URL`, `PREFLIGHT_API_KEY`) → provider-specific env vars (`GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `CEREBRAS_API_KEY`) → preset defaults (`ollama`, `qwen2.5-coder:7b`, `http://localhost:11434/v1`). |
+| **Concurrency** | **Single-flight (`concurrency = 1`)** per process via an internal FIFO mutex queue so sequential or benchmark calls never flood local hardware or free-tier cloud rate limits. |
+| **Input Context Budget** | **`<= 20,000` input tokens** per call via deterministic priority trimming in 5-item order: (1) `git diff`, (2) CI commands, (3) changed files' tests, (4) changed files, (5) neighbors — trimmed in reverse priority order. |
+| **Output Token Cap** | **`max_completion_tokens: ~1,500`** (`<= 2,000`), preventing runaway completions and respecting providers that pre-charge `max_completion_tokens` against per-minute token quotas. |
+| **HTTP 429 Handling** | Honor `Retry-After` response header (delta-seconds or HTTP-date) when present; otherwise bounded exponential backoff with random jitter. |
+| **Secret Redaction** | API keys are read strictly from environment variables and redacted (`[REDACTED]`) from all error messages, stack traces, and debug logs. |
+| **Structured Outputs / Tool Calling** | Do **not** depend on provider-specific `tools` or `response_format: json_schema`. Use plain-text JSON prompts + local schema validation + at most 1 retry. |
+| **Timing & Telemetry** | Always record client-side `wallTimeMs` (`performance.now()`) plus `usage` (`prompt_tokens`, `completion_tokens`, `total_tokens`), and capture optional provider `time_info` (`queue_time`, `prompt_time`, `completion_time`, `total_time`) when present in the JSON response. |
 
 ---
 
-## 7. Hackathon Rules, Submission Requirements & Storyboard
+## 7. Project Roadmap & Phased Delivery
 
-### 7.1 Hackathon Window, Time Gate & Phase 0 Boundary
-
-- **Hackathon Coding Window:** **Saturday, Nov 21, 2026 at 10:00 AM PT to Sunday, Nov 22, 2026 at 10:00 AM PT**.
-- **Submission Deadline:** All submission posts must be published by **Sunday, Nov 22, 2026 at 10:00 AM PT**.
-- **Trial Model Access Expiration:** Access to `moonshotai-kimi-k3.1-pro-trial` ends **Monday, Nov 23, 2026 at 10:00 AM PT**.
-- **License:** MIT License (approved by user).
-- **Phase 0 Allowed Work (Before Sat Nov 21, 10:00 AM PT):**
-  - Architecture and specification docs (`docs/SPEC.md`, `docs/DECISIONS.md`, `docs/notes/*.md`)
-  - Empty project scaffolding, build/lint/test setup, CI workflow, stub CLI printing `not implemented`, and thin HTTP API client wrappers (`src/clients/*`)
-  - Benchmark dataset curation and local reproduction verification (`bench/cases/*.json`, `bench/README.md`)
-- **Forbidden Before Kickoff:** Writing any Gather, Think, Verify, or Explain business logic before Sat Nov 21, 10:00 AM PT.
-
-### 7.2 Submission Requirements & Prizes
-
-1. **X (Twitter) Post (Required):**
-   - Must be published by **Sun Nov 22, 2026 at 10:00 AM PT**.
-   - Public post featuring a demo video of **60 seconds or less**.
-   - Must tag **`@Cerebras`** and **`@Kimi_Moonshot`** and include hashtag **`#KimiOnCerebras`**.
-   - Must include:
-     - Project name (**Preflight**)
-     - Team handles
-     - 2–4 sentence project description
-     - Public GitHub repository link: `https://github.com/OmChauhan9/preflight`
-2. **Reddit Post (Optional):**
-   - Cross-post to **`r/cerebras`** with flair **`"Kimi K3.1 Pro Hackathon"`** by **Sun Nov 22, 2026 at 10:00 AM PT**.
-3. **Prizes & Engagement Rules:**
-   - **Audience Vote:** Top 3 projects by X impressions + Top 1 project on Reddit (`r/cerebras`).
-   - **Fastest-TPS Prompt Prize:** Highest tokens/sec showcase on Cerebras.
-   - **Fair Play:** Organic engagement only (no bots, paid promotion, or artificial impression boosting).
-
-### 7.3 60-Second Demo Video Storyboard
-
-| Time | Beat | On-Screen Visual | Narration / Caption Focus |
-| :--- | :--- | :--- | :--- |
-| **0:00–0:08** | **Hook & Problem** | Split screen: AI agent blind-pushing a PR vs GitHub Actions failing 4 minutes later on a broken import/test. | "AI coding agents write code in seconds—then wait minutes for GitHub Actions to fail. What if your agent ran the right CI checks locally in two seconds?" |
-| **0:08–0:25** | **Live OpenClaw + Preflight Check** | OpenClaw agent edits code, triggers `preflight check`. Gather → Think (Kimi K3.1 Pro on Cerebras) → Verify runs scoped Vitest & `tsc` command, catches real failure with non-zero exit code. | "Meet Preflight. Inside OpenClaw, Kimi K3.1 Pro on Cerebras inspects the git diff and workflow files, selects only the affected checks, and runs the real commands locally." |
-| **0:25–0:38** | **Explain & Fix Loop** | Run `preflight explain` (or agent applies fix and re-runs `preflight check`). Scoped checks turn green with exit code 0. | "Kimi pinpoints the root cause, the agent patches it, and Preflight verifies the fix via real exit codes—never guessing." |
-| **0:38–0:50** | **Cerebras vs GPU Speed Panel** | Side-by-side terminal race: `--provider cerebras` vs `--provider gpu`, highlighting Speed Panel (`tok/s`, `time_info.completion_time`, wall time split). | "Why Cerebras? On a standard GPU endpoint, the Think step stalls the inner loop. On Cerebras, Kimi K3.1 Pro triages the diff in a fraction of a second." |
-| **0:50–1:00** | **Benchmark Proof & CTA** | Benchmark table across 20–30 failed + ~10 passing real GitHub PRs, followed by GitHub repo URL and tags. | "Tested on over 30 real GitHub PRs. Open source today—try Preflight with OpenClaw and Kimi K3.1 Pro on Cerebras." |
-
-### 7.4 Scope Cut Order
-
-If schedule pressure arises during the weekend, features are cut in strict reverse priority order (from first-to-cut to never-cut):
-
-1. **Cut 1 (First to Cut):** Any optional web UI / dashboard polish (keep 100% terminal CLI + OpenClaw).
-2. **Cut 2:** Auto-applying patches inside `preflight explain` (keep root-cause diagnosis + printed suggested patch + re-running the failing command).
-3. **Cut 3:** Deep multi-hop transitive import-graph resolution for complex monorepos (fall back to 1-hop direct import matching + directory/filename heuristics + workflow commands).
-4. **Cut 4:** Native OpenClaw plugin/skill packaging if harness quirks block it (fall back immediately to OpenClaw invoking `preflight check --json` via shell tool).
-5. **Never Cut (Core Must-Haves):**
-   - `preflight check` end-to-end (`Gather → Think → Verify`) with strict workflow allowlist and exit-code-only verdicts
-   - Speed panel with real Cerebras `time_info` and `--provider` GPU comparison
-   - `preflight explain` on real CI failure logs
-   - Honest benchmark results on `bench/cases/` and the <= 60s demo video
+1. **Phase 0 — Groundwork, Open-Source Pivot & Verified Benchmark Corpus (Complete):**
+   - Architecture and technical specification (`docs/SPEC.md`, `docs/DECISIONS.md`, `docs/notes/providers.md`, `docs/notes/agent-integrations.md`).
+   - Provider-agnostic `OpenAICompatibleClient` (`src/clients/`) supporting `ollama` ($0 local default), `groq`, `gemini`, `openrouter`, `openai`, `cerebras`, and `custom`.
+   - CLI entry point (`src/cli.ts`), portable Agent Skill (`skills/preflight/SKILL.md`, `docs/agent-setup.md`), and unit test suite.
+   - Curated 35-case real GitHub PR benchmark corpus (`bench/cases/*.json`, `bench/README.md`) with 2 local `<1s` reproductions (`bench/REPRO.md`).
+2. **Phase 1 — Core `Gather → Think → Verify` & `Explain` Pipeline (Next):**
+   - Implement `Gather` (git diff parser, JS/TS & Python static import graph, `.github/workflows/*.yml` command extractor, and 5-tier token trimmer).
+   - Implement `Think` (prompt builder, plain-text JSON extractor, schema validator, and 1-retry self-correction loop).
+   - Implement `Verify` (workflow-derived command allowlist validator, subprocess runner with timeouts, exit-code verdict reporter, and Speed/Telemetry panel).
+   - Implement `Explain` (`preflight explain <CI log URL or file>`) and optional `preflight init --hook` git `pre-push` hook installer.
+3. **Phase 2 — Benchmark Runner & Multi-Provider Evaluation (Planned):**
+   - Implement `preflight bench` to evaluate command selection recall, passing-PR precision, root-cause explanation accuracy, and latency telemetry across the 35 verified PR cases on local Ollama and cloud OpenAI-compatible providers.
