@@ -80,7 +80,10 @@ export function redactSecrets(
     /Authorization\s*:\s*[^\r\n,;]+/gi,
     'Authorization: [REDACTED]',
   );
-  sanitized = sanitized.replace(/\b(?:csk|sk)-[A-Za-z0-9_-]{8,}\b/g, '[REDACTED]');
+  sanitized = sanitized.replace(
+    /(?<![A-Za-z0-9_-])(?:(?:csk|sk)-|gsk_|AIza)[A-Za-z0-9_-]{8,}/g,
+    '[REDACTED]',
+  );
 
   return sanitized;
 }
@@ -175,17 +178,65 @@ function truncateSnippet(text: string): string {
   return `${collapsed.slice(0, MAX_ERROR_BODY_LENGTH)}...`;
 }
 
+function createRequestSignal(
+  timeoutMs: number | undefined,
+  externalSignal: AbortSignal | undefined,
+): {
+  signal: AbortSignal | undefined;
+  cleanup: () => void;
+  didTimeout: () => boolean;
+} {
+  if (timeoutMs === undefined) {
+    return {
+      signal: externalSignal,
+      cleanup: () => undefined,
+      didTimeout: () => false,
+    };
+  }
+
+  const controller = new AbortController();
+  let timedOut = false;
+
+  const onExternalAbort = (): void => {
+    controller.abort(externalSignal?.reason);
+  };
+
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort(externalSignal.reason);
+    } else {
+      externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+    }
+  }
+
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort(new Error(`Request timed out after ${timeoutMs}ms`));
+  }, timeoutMs);
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timer);
+      externalSignal?.removeEventListener('abort', onExternalAbort);
+    },
+    didTimeout: () => timedOut,
+  };
+}
+
 export interface PostChatCompletionParams {
   provider: string;
   baseUrl: string;
-  apiKey: string | undefined;
-  apiKeyEnvVar: string;
+  apiKey?: string;
+  requiresApiKey?: boolean;
+  apiKeyEnvVar?: string;
   model: string | undefined;
-  modelEnvVar: string;
+  modelEnvVar?: string;
   request: ChatCompletionRequest;
   fetch?: FetchLike;
   queue?: SingleFlightQueue;
   retry?: RetryOptions;
+  timeoutMs?: number;
 }
 
 /**
@@ -195,10 +246,24 @@ export interface PostChatCompletionParams {
 export async function postChatCompletion(
   params: PostChatCompletionParams,
 ): Promise<ChatCompletionResult> {
-  const apiKey = params.apiKey?.trim();
-  if (!apiKey) {
+  const rawApiKey = params.apiKey?.trim();
+  const apiKey = rawApiKey && rawApiKey.length > 0 ? rawApiKey : undefined;
+
+  if (params.requiresApiKey && !apiKey) {
+    const envHint =
+      params.apiKeyEnvVar && params.apiKeyEnvVar !== 'PREFLIGHT_API_KEY'
+        ? `PREFLIGHT_API_KEY or ${params.apiKeyEnvVar}`
+        : 'PREFLIGHT_API_KEY';
     throw new LlmHttpError(
-      `Missing API key for ${params.provider}: set ${params.apiKeyEnvVar} or pass apiKey`,
+      `Missing API key for ${params.provider}: set ${envHint} or pass apiKey`,
+      { provider: params.provider },
+    );
+  }
+
+  const baseUrl = normalizeBaseUrl(params.baseUrl.trim());
+  if (!baseUrl) {
+    throw new LlmHttpError(
+      `Missing base URL for ${params.provider}: set PREFLIGHT_BASE_URL or pass baseUrl`,
       { provider: params.provider },
     );
   }
@@ -206,12 +271,21 @@ export async function postChatCompletion(
   const model = (params.request.model ?? params.model)?.trim();
   if (!model) {
     throw new LlmHttpError(
-      `Missing model for ${params.provider}: set ${params.modelEnvVar} or pass model`,
+      `Missing model for ${params.provider}: set ${params.modelEnvVar ?? 'PREFLIGHT_MODEL'} or pass model`,
       { provider: params.provider },
     );
   }
 
-  const url = `${normalizeBaseUrl(params.baseUrl)}/chat/completions`;
+  if (
+    params.timeoutMs !== undefined &&
+    (!Number.isFinite(params.timeoutMs) || params.timeoutMs <= 0)
+  ) {
+    throw new LlmHttpError('timeoutMs must be a positive finite number', {
+      provider: params.provider,
+    });
+  }
+
+  const url = `${baseUrl}/chat/completions`;
   const fetchImpl: FetchLike = params.fetch ?? globalThis.fetch;
   const queue = params.queue ?? sharedSingleFlightQueue;
 
@@ -239,114 +313,139 @@ export async function postChatCompletion(
     payload.reasoning_format = params.request.reasoning_format;
   }
 
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+
   const body = JSON.stringify(payload);
-  const secrets = [apiKey];
+  const secrets = apiKey ? [apiKey] : [];
 
   return queue.enqueue(async () => {
     const startMs = performance.now();
+    const requestSignal = createRequestSignal(params.timeoutMs, params.request.signal);
 
-    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-      let response: Response;
-      try {
-        const init: RequestInit = {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body,
+    try {
+      for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+        let response: Response;
+        try {
+          const init: RequestInit = {
+            method: 'POST',
+            headers,
+            body,
+          };
+          if (requestSignal.signal !== undefined) {
+            init.signal = requestSignal.signal;
+          }
+          response = await fetchImpl(url, init);
+        } catch (error) {
+          if (requestSignal.didTimeout()) {
+            throw new LlmHttpError(
+              `${params.provider} request timed out after ${params.timeoutMs}ms`,
+              { provider: params.provider },
+            );
+          }
+          const rawMessage = error instanceof Error ? error.message : String(error);
+          const safeMessage = redactSecrets(rawMessage, secrets);
+          throw new LlmHttpError(
+            `${params.provider} request failed: ${safeMessage}`,
+            { provider: params.provider },
+          );
+        }
+
+        if (response.status === 429) {
+          const rawBody = await response.text().catch(() => '');
+          const retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
+
+          if (attempt < maxRetries) {
+            const delayMs = computeRetryDelayMs(attempt, retryAfterMs, {
+              baseDelayMs,
+              maxDelayMs,
+              random,
+            });
+            try {
+              await sleep(delayMs, requestSignal.signal);
+            } catch (error) {
+              if (requestSignal.didTimeout()) {
+                throw new LlmHttpError(
+                  `${params.provider} request timed out after ${params.timeoutMs}ms`,
+                  { provider: params.provider },
+                );
+              }
+              throw error;
+            }
+            continue;
+          }
+
+          const safeBody = redactSecrets(truncateSnippet(rawBody), secrets);
+          const detail = safeBody ? `: ${safeBody}` : '';
+          throw new LlmHttpError(
+            `${params.provider} rate limited (HTTP 429) after ${maxRetries} retries${detail}`,
+            {
+              provider: params.provider,
+              status: 429,
+              retryAfterMs,
+            },
+          );
+        }
+
+        const rawText = await response.text().catch(() => '');
+
+        if (!response.ok) {
+          const safeBody = redactSecrets(truncateSnippet(rawText), secrets);
+          const detail = safeBody ? `: ${safeBody}` : '';
+          throw new LlmHttpError(
+            `${params.provider} API error (HTTP ${response.status})${detail}`,
+            {
+              provider: params.provider,
+              status: response.status,
+            },
+          );
+        }
+
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(rawText);
+        } catch {
+          const safeSnippet = redactSecrets(truncateSnippet(rawText), secrets);
+          throw new LlmHttpError(
+            `${params.provider} returned invalid JSON (HTTP ${response.status}): ${safeSnippet}`,
+            {
+              provider: params.provider,
+              status: response.status,
+            },
+          );
+        }
+
+        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+          throw new LlmHttpError(
+            `${params.provider} returned unexpected JSON response shape (HTTP ${response.status})`,
+            {
+              provider: params.provider,
+              status: response.status,
+            },
+          );
+        }
+
+        const raw = parsed as RawChatCompletionResponse;
+        const wallTimeMs = Math.max(0, performance.now() - startMs);
+
+        return {
+          raw,
+          time_info: raw.time_info ?? null,
+          usage: raw.usage ?? null,
+          wallTimeMs,
+          status: response.status,
         };
-        if (params.request.signal !== undefined) {
-          init.signal = params.request.signal;
-        }
-        response = await fetchImpl(url, init);
-      } catch (error) {
-        const rawMessage = error instanceof Error ? error.message : String(error);
-        const safeMessage = redactSecrets(rawMessage, secrets);
-        throw new LlmHttpError(
-          `${params.provider} request failed: ${safeMessage}`,
-          { provider: params.provider },
-        );
       }
 
-      if (response.status === 429) {
-        const rawBody = await response.text().catch(() => '');
-        const retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
-
-        if (attempt < maxRetries) {
-          const delayMs = computeRetryDelayMs(attempt, retryAfterMs, {
-            baseDelayMs,
-            maxDelayMs,
-            random,
-          });
-          await sleep(delayMs, params.request.signal);
-          continue;
-        }
-
-        const safeBody = redactSecrets(truncateSnippet(rawBody), secrets);
-        const detail = safeBody ? `: ${safeBody}` : '';
-        throw new LlmHttpError(
-          `${params.provider} rate limited (HTTP 429) after ${maxRetries} retries${detail}`,
-          {
-            provider: params.provider,
-            status: 429,
-            retryAfterMs,
-          },
-        );
-      }
-
-      const rawText = await response.text().catch(() => '');
-
-      if (!response.ok) {
-        const safeBody = redactSecrets(truncateSnippet(rawText), secrets);
-        const detail = safeBody ? `: ${safeBody}` : '';
-        throw new LlmHttpError(
-          `${params.provider} API error (HTTP ${response.status})${detail}`,
-          {
-            provider: params.provider,
-            status: response.status,
-          },
-        );
-      }
-
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(rawText);
-      } catch {
-        const safeSnippet = redactSecrets(truncateSnippet(rawText), secrets);
-        throw new LlmHttpError(
-          `${params.provider} returned invalid JSON (HTTP ${response.status}): ${safeSnippet}`,
-          {
-            provider: params.provider,
-            status: response.status,
-          },
-        );
-      }
-
-      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-        throw new LlmHttpError(
-          `${params.provider} returned unexpected JSON response shape (HTTP ${response.status})`,
-          {
-            provider: params.provider,
-            status: response.status,
-          },
-        );
-      }
-
-      const raw = parsed as RawChatCompletionResponse;
-      const wallTimeMs = Math.max(0, performance.now() - startMs);
-
-      return {
-        raw,
-        time_info: raw.time_info ?? null,
-        usage: raw.usage ?? null,
-        wallTimeMs,
-        status: response.status,
-      };
+      throw new LlmHttpError(`${params.provider} request failed unexpectedly`, {
+        provider: params.provider,
+      });
+    } finally {
+      requestSignal.cleanup();
     }
-
-    throw new LlmHttpError(`${params.provider} request failed unexpectedly`, {
-      provider: params.provider,
-    });
   });
 }
