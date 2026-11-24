@@ -491,7 +491,8 @@ export function tokenizeCommand(command: string): TokenizeResult {
 }
 
 function isPythonBinary(token: string): boolean {
-  return PYTHON_BINARY_RE.test(token);
+  const base = posixPath.basename(token.replace(/\\/g, '/'));
+  return PYTHON_BINARY_RE.test(base);
 }
 
 function isInterpreterBinary(token: string): boolean {

@@ -573,4 +573,58 @@ describe('preflight CLI validation and secret redaction', () => {
     expect(stderr).not.toContain(customSecret);
     expect(stderr).not.toContain('gsk_1234567890abcdef1234');
   });
+
+  it('redacts custom non-prefixed env secrets echoed in check and explain --json output while preserving valid JSON', async () => {
+    const customSecret = 'my-unprefixed-env-secret-42';
+
+    const checkIo = createCapturedIo();
+    const checkCode = await runCli(['check', '--json'], checkIo.io, {
+      cwd: '/repo',
+      env: { PREFLIGHT_API_KEY: customSecret },
+      createClient: (opts) => createFakeClient(opts),
+      runCheckFn: async (_opts, _client, meta) => {
+        const report = makeCheckReport('passed', meta);
+        const firstResult = report.verify.results[0];
+        if (firstResult) {
+          firstResult.stdout = `echoed token=${customSecret} Authorization: Bearer ${customSecret}`;
+        }
+        return report;
+      },
+    });
+
+    expect(checkCode).toBe(0);
+    const checkJsonRaw = checkIo.stdout.join('\n');
+    expect(checkJsonRaw).not.toContain(customSecret);
+    expect(checkJsonRaw).toContain('[REDACTED]');
+    const parsedCheck = JSON.parse(checkJsonRaw) as CheckReport;
+    expect(parsedCheck.verify.results[0]?.stdout).toContain('[REDACTED]');
+    expect(parsedCheck.verify.results[0]?.stdout).not.toContain(customSecret);
+
+    const explainIo = createCapturedIo();
+    const explainCode = await runCli(
+      ['explain', 'ci.log', '--json'],
+      explainIo.io,
+      {
+        cwd: '/repo',
+        env: { PREFLIGHT_API_KEY: customSecret },
+        createClient: (opts) => createFakeClient(opts),
+        runExplainFn: async (opts, _client, meta) => {
+          const result = makeExplainResult(opts.source, meta);
+          const firstVerifyResult = result.verification?.results[0];
+          if (firstVerifyResult) {
+            firstVerifyResult.stderr = `failed using ${customSecret}`;
+          }
+          return result;
+        },
+      },
+    );
+
+    expect(explainCode).toBe(0);
+    const explainJsonRaw = explainIo.stdout.join('\n');
+    expect(explainJsonRaw).not.toContain(customSecret);
+    expect(explainJsonRaw).toContain('[REDACTED]');
+    const parsedExplain = JSON.parse(explainJsonRaw) as ExplainResult;
+    expect(parsedExplain.verification?.results[0]?.stderr).toContain('[REDACTED]');
+    expect(parsedExplain.verification?.results[0]?.stderr).not.toContain(customSecret);
+  });
 });

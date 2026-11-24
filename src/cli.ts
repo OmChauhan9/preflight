@@ -333,6 +333,18 @@ function buildClientOptions(
   return options;
 }
 
+function stringifyRedactedJson(
+  value: unknown,
+  secrets: readonly string[],
+): string {
+  return JSON.stringify(
+    value,
+    (_key, val: unknown) =>
+      typeof val === 'string' ? redactSecrets(val, secrets) : val,
+    2,
+  );
+}
+
 function formatHookInstallResult(result: InstallPrePushHookResult): string {
   const headline =
     result.status === 'installed'
@@ -367,6 +379,7 @@ export async function runCli(
 
   const cwd = deps.cwd ?? process.cwd();
   const env = deps.env ?? process.env;
+  const envSecrets = collectEnvSecrets(env);
   const createClient = deps.createClient ?? createClientFromEnv;
   const runCheckFn = deps.runCheckFn ?? runCheck;
   const runExplainFn = deps.runExplainFn ?? runExplain;
@@ -406,9 +419,9 @@ export async function runCli(
 
         const report = await runCheckFn(checkOptions, client, clientMeta);
         if (parsed.json) {
-          io.stdout(JSON.stringify(report, null, 2));
+          io.stdout(stringifyRedactedJson(report, envSecrets));
         } else {
-          io.stdout(formatCheckReport(report));
+          io.stdout(redactSecrets(formatCheckReport(report), envSecrets));
         }
         return report.verdict === 'failed' ? 1 : 0;
       }
@@ -444,9 +457,9 @@ export async function runCli(
 
         const result = await runExplainFn(explainOptions, client, clientMeta);
         if (parsed.json) {
-          io.stdout(JSON.stringify(result, null, 2));
+          io.stdout(stringifyRedactedJson(result, envSecrets));
         } else {
-          io.stdout(formatExplainReport(result));
+          io.stdout(redactSecrets(formatExplainReport(result), envSecrets));
         }
         return 0;
       }
@@ -454,9 +467,9 @@ export async function runCli(
       case 'init': {
         const result = installHookFn(cwd, { force: parsed.force });
         if (parsed.json) {
-          io.stdout(JSON.stringify(result, null, 2));
+          io.stdout(stringifyRedactedJson(result, envSecrets));
         } else {
-          io.stdout(formatHookInstallResult(result));
+          io.stdout(redactSecrets(formatHookInstallResult(result), envSecrets));
         }
         return 0;
       }
@@ -468,7 +481,7 @@ export async function runCli(
     }
   } catch (error: unknown) {
     const rawMessage = error instanceof Error ? error.message : String(error);
-    const safeMessage = redactSecrets(rawMessage, collectEnvSecrets(env));
+    const safeMessage = redactSecrets(rawMessage, envSecrets);
     io.stderr(`Error: ${safeMessage}`);
     return 1;
   }
