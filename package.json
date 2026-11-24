@@ -2,7 +2,18 @@
   "name": "preflight",
   "version": "0.1.0",
   "license": "MIT",
-  "description": "Fast CI pre-checks for AI coding agents, powered by Kimi K3.1 Pro on Cerebras.",
+  "description": "Fast, verifiable CI pre-checks for AI coding agents using any OpenAI-compatible LLM (local Ollama by default).",
+  "keywords": [
+    "ci",
+    "cli",
+    "preflight",
+    "ai-agents",
+    "coding-agents",
+    "ollama",
+    "openai-compatible",
+    "llm",
+    "developer-tools"
+  ],
   "type": "module",
   "engines": {
     "node": ">=22"

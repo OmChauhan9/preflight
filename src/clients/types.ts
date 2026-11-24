@@ -27,7 +27,7 @@ export interface ChatCompletionUsage {
   [key: string]: unknown;
 }
 
-export interface CerebrasTimeInfo {
+export interface ProviderTimeInfo {
   queue_time?: number;
   prompt_time?: number;
   completion_time?: number;
@@ -56,13 +56,13 @@ export interface RawChatCompletionResponse {
   model?: string;
   choices?: ChatCompletionChoice[];
   usage?: ChatCompletionUsage;
-  time_info?: CerebrasTimeInfo | null;
+  time_info?: ProviderTimeInfo | null;
   [key: string]: unknown;
 }
 
 export interface ChatCompletionResult {
   raw: RawChatCompletionResponse;
-  time_info: CerebrasTimeInfo | null;
+  time_info: ProviderTimeInfo | null;
   usage: ChatCompletionUsage | null;
   wallTimeMs: number;
   status: number;

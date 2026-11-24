@@ -1,14 +1,20 @@
 export {
-  CerebrasClient,
-  DEFAULT_CEREBRAS_BASE_URL,
-  DEFAULT_CEREBRAS_MODEL,
-  type CerebrasClientOptions,
-} from './cerebras.js';
+  DEFAULT_PROVIDER,
+  isProviderName,
+  PROVIDER_NAMES,
+  PROVIDER_PRESETS,
+  resolveProviderConfig,
+  type EnvSource,
+  type ProviderName,
+  type ProviderPreset,
+  type ResolvedProviderConfig,
+  type ResolveProviderConfigOptions,
+} from './providers.js';
 export {
-  DEFAULT_MOONSHOT_BASE_URL,
-  GpuProviderClient,
-  type GpuProviderClientOptions,
-} from './gpu-provider.js';
+  createClientFromEnv,
+  OpenAICompatibleClient,
+  type OpenAICompatibleClientOptions,
+} from './openai-compatible.js';
 export {
   computeRetryDelayMs,
   defaultSleep,
@@ -22,7 +28,6 @@ export {
   type PostChatCompletionParams,
 } from './http.js';
 export type {
-  CerebrasTimeInfo,
   ChatCompletionChoice,
   ChatCompletionRequest,
   ChatCompletionResult,
@@ -31,6 +36,7 @@ export type {
   ChatRole,
   FetchLike,
   LlmClient,
+  ProviderTimeInfo,
   RawChatCompletionResponse,
   RetryOptions,
   SleepFn,
