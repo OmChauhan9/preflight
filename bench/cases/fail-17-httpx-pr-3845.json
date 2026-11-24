@@ -1,0 +1,26 @@
+{
+  "id": "fail-17-httpx-pr-3845",
+  "status": "fail",
+  "repo": "encode/httpx",
+  "pr": 3845,
+  "pr_url": "https://github.com/encode/httpx/pull/3845",
+  "language": "python",
+  "base_sha": "7cff5f79bc78649bbcd3fd9aa7a74c86e0f63016",
+  "head_sha": "b38afecf3a2e00490ffa34427ab18154dcf98859",
+  "workflow_file": ".github/workflows/test-suite.yml",
+  "run_id": 44203760470,
+  "run_url": "https://github.com/encode/httpx/actions/runs/44203760470",
+  "failing_job": "Python 3.13",
+  "failing_command": "scripts/check",
+  "log_excerpt": "2026-11-17T23:57:27.7929173Z + ruff format httpx tests --diff\n2026-11-17T23:57:27.8065071Z 1 file would be reformatted, 59 files already formatted\n2026-11-17T23:57:27.8065336Z --- tests/models/test_url.py\n2026-11-17T23:57:27.8065578Z +++ tests/models/test_url.py\n2026-11-17T23:57:27.8065814Z @@ -912,7 +912,9 @@\n2026-11-17T23:57:27.8066010Z  \n2026-11-17T23:57:27.8066191Z  def test_ipv6_host_and_netloc_agree():\n2026-11-17T23:57:27.8066616Z      from_host = httpx.URL(scheme=\"http\", host=\"::ffff:192.168.0.1\", port=8080, path=\"/\")\n2026-11-17T23:57:27.8067072Z -    from_netloc = httpx.URL(scheme=\"http\", netloc=b\"[::ffff:192.168.0.1]:8080\", path=\"/\")\n2026-11-17T23:57:27.8067446Z +    from_netloc = httpx.URL(\n2026-11-17T23:57:27.8067712Z +        scheme=\"http\", netloc=b\"[::ffff:192.168.0.1]:8080\", path=\"/\"\n2026-11-17T23:57:27.8067986Z +    )\n2026-11-17T23:57:27.8068135Z  \n2026-11-17T23:57:27.8068297Z      assert from_host == from_netloc\n2026-11-17T23:57:27.8068573Z      assert str(from_host) == \"http://[::ffff:192.168.0.1]:8080/\"\n2026-11-17T23:57:27.8085846Z ##[error]Process completed with exit code 1.",
+  "changed_files": [
+    "httpx/_urlparse.py",
+    "tests/models/test_url.py"
+  ],
+  "root_cause_label": "lint_format: tests/models/test_url.py:915 — ruff format --diff fails on overlong single-line assignment from_netloc = httpx.URL(...) in test_ipv6_host_and_netloc_agree",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "PR adds test_ipv6_host_and_netloc_agree in tests/models/test_url.py with an 89-character single-line httpx.URL(...) call at line 915 that fails ruff format --diff in scripts/check."
+  }
+}

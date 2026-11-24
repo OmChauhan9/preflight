@@ -1,0 +1,34 @@
+{
+  "id": "fail-06-zod-pr-6588",
+  "status": "fail",
+  "repo": "colinhacks/zod",
+  "pr": 6588,
+  "pr_url": "https://github.com/colinhacks/zod/pull/6588",
+  "language": "typescript",
+  "base_sha": "413cce9a8c893bab2dccbe4200c84a7635bbe22f",
+  "head_sha": "8929ca4d362fecd998e04565794149fb648a8aae",
+  "workflow_file": ".github/workflows/test.yml",
+  "run_id": 34550646493,
+  "run_url": "https://github.com/colinhacks/zod/actions/runs/34550646493",
+  "failing_job": "Test with TypeScript 5.5 on Node lts/* (ubuntu-latest)",
+  "failing_command": "nub run test",
+  "log_excerpt": "2026-09-11T01:28:59.2916682Z \u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 1 \u23af\u23af\u23af\u23af\u23af\u23af\u23af\n2026-09-11T01:28:59.2917413Z \n2026-09-11T01:28:59.2921343Z  FAIL   compile-mode  packages/zod/src/v4/core/tests/compile.test.ts > compiled validators take precedence over boolean patterns\n2026-09-11T01:28:59.2926637Z RangeError: Maximum call stack size exceeded\n2026-09-11T01:28:59.2928277Z  \u276f Internals.inst._zod.check packages/zod/src/v4/core/checks.ts:751:52\n2026-09-11T01:28:59.3049798Z     749|           format: def.format,\n2026-09-11T01:28:59.3051258Z     750|           input: payload.value,\n2026-09-11T01:28:59.3053735Z     751|           ...(def.pattern ? { pattern: def.pattern.toString() } : {}),\n2026-09-11T01:28:59.3055568Z        |                                                    ^\n2026-09-11T01:28:59.3056550Z     752|           inst,\n2026-09-11T01:28:59.3058127Z     753|           continue: !def.abort,\n2026-09-11T01:28:59.3059750Z  \u276f runChecks packages/zod/src/v4/core/schemas.ts:255:29\n2026-09-11T01:28:59.3061127Z  \u276f Internals.inst._zod.run packages/zod/src/v4/core/schemas.ts:324:16\n2026-09-11T01:28:59.3062327Z  \u276f shim packages/zod/src/compile.ts:49:22\n2026-09-11T01:28:59.3063425Z  \u276f countingShim scripts/enable-compile.ts:34:24\n2026-09-11T01:28:59.3064722Z  \u276f source._zod.run packages/zod/src/v4/core/tests/compile.test.ts:1895:12\n2026-09-11T01:28:59.3066110Z  \u276f Internals.wrapped packages/zod/src/v4/core/compile.ts:172:14\n2026-09-11T01:28:59.3067523Z  \u276f shim packages/zod/src/compile.ts:49:22\n2026-09-11T01:28:59.3068698Z  \u276f countingShim scripts/enable-compile.ts:34:24",
+  "changed_files": [
+    "packages/zod/src/v4/classic/tests/array.test.ts",
+    "packages/zod/src/v4/classic/tests/instance-footprint.test.ts",
+    "packages/zod/src/v4/classic/tests/to-json-schema.test.ts",
+    "packages/zod/src/v4/core/compile.ts",
+    "packages/zod/src/v4/core/json-schema-processors.ts",
+    "packages/zod/src/v4/core/parse.ts",
+    "packages/zod/src/v4/core/schemas.ts",
+    "packages/zod/src/v4/core/tests/compile-differential.test.ts",
+    "packages/zod/src/v4/core/tests/compile.test.ts",
+    "packages/zod/src/v4/core/tests/url-no-canparse.test.ts"
+  ],
+  "root_cause_label": "unit_test: packages/zod/src/v4/core/tests/compile.test.ts:1895 — 'compiled validators take precedence over boolean patterns' wraps source._zod.run after compile-mode shim, causing infinite recursion and RangeError: Maximum call stack size exceeded",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "PR adds 'compiled validators take precedence over boolean patterns' in packages/zod/src/v4/core/tests/compile.test.ts which wraps source._zod.run and recurses infinitely under compile-mode (scripts/enable-compile.ts)."
+  }
+}

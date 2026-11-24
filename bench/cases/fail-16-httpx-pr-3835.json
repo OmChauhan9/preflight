@@ -1,0 +1,27 @@
+{
+  "id": "fail-16-httpx-pr-3835",
+  "status": "fail",
+  "repo": "encode/httpx",
+  "pr": 3835,
+  "pr_url": "https://github.com/encode/httpx/pull/3835",
+  "language": "python",
+  "base_sha": "08cf535b34a242829883baab36ea7af08a35e2a8",
+  "head_sha": "4574789aa379a2b5ce03b6fd0083e3b30cdf0223",
+  "workflow_file": ".github/workflows/test-suite.yml",
+  "run_id": 43902530701,
+  "run_url": "https://github.com/encode/httpx/actions/runs/43902530701",
+  "failing_job": "Python 3.14",
+  "failing_command": "scripts/test",
+  "log_excerpt": "2026-11-16T16:00:47.9818147Z ________________ ERROR at setup of test_logging_redirect_chain _________________\n2026-11-16T16:00:47.9818249Z     @pytest.fixture(scope=\"session\")\n2026-11-16T16:00:47.9818369Z     def server() -> typing.Iterator[TestServer]:\n2026-11-16T16:00:47.9818511Z         config = Config(app=app, lifespan=\"off\", loop=\"asyncio\")\n2026-11-16T16:00:47.9818624Z         server = TestServer(config=config)\n2026-11-16T16:00:47.9818729Z >       yield from serve_in_thread(server)\n2026-11-16T16:00:47.9818822Z tests/conftest.py:300: \n2026-11-16T16:00:47.9819417Z     def serve_in_thread(server: TestServer) -> typing.Iterator[TestServer]:\n2026-11-16T16:00:47.9819576Z         thread = threading.Thread(target=server.run, daemon=True)\n2026-11-16T16:00:47.9819687Z         startup_deadline = time.monotonic() + 10\n2026-11-16T16:00:47.9819778Z         thread.start()\n2026-11-16T16:00:47.9819854Z         try:\n2026-11-16T16:00:47.9819961Z             while not server.started:\n2026-11-16T16:00:47.9820057Z                 if not thread.is_alive():\n2026-11-16T16:00:47.9820242Z                     raise RuntimeError(  # pragma: no cover\n2026-11-16T16:00:47.9820380Z                         \"Uvicorn test server exited before startup.\"\n2026-11-16T16:00:47.9820460Z                     )\n2026-11-16T16:00:47.9820582Z                 if time.monotonic() > startup_deadline:\n2026-11-16T16:00:47.9820696Z >                   raise TimeoutError(  # pragma: no cover\n2026-11-16T16:00:47.9820854Z                         \"Uvicorn test server did not start within 10 seconds.\"\n2026-11-16T16:00:47.9820933Z                     )\n2026-11-16T16:00:47.9821122Z E                   TimeoutError: Uvicorn test server did not start within 10 seconds.\n2026-11-16T16:00:47.9821234Z tests/conftest.py:282: TimeoutError\n2026-11-16T16:00:47.9821829Z ================= 1324 passed, 1 skipped, 93 errors in 15.38s ==================",
+  "changed_files": [
+    ".github/workflows/test-suite.yml",
+    "pyproject.toml",
+    "tests/conftest.py"
+  ],
+  "root_cause_label": "unit_test: tests/conftest.py:282 & .github/workflows/test-suite.yml:18 — adding Python 3.14 to the CI matrix and a 10s startup deadline in serve_in_thread causes 93 fixture setup errors (TimeoutError: Uvicorn test server did not start within 10 seconds)",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "PR adds Python 3.14 to .github/workflows/test-suite.yml and a 10s startup TimeoutError in tests/conftest.py:serve_in_thread, which triggers on Python 3.14 when the Uvicorn test server fails to start."
+  }
+}

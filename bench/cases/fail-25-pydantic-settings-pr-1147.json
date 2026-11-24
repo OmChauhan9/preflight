@@ -1,0 +1,33 @@
+{
+  "id": "fail-25-pydantic-settings-pr-1147",
+  "status": "fail",
+  "repo": "pydantic/pydantic-settings",
+  "pr": 1147,
+  "pr_url": "https://github.com/pydantic/pydantic-settings/pull/1147",
+  "language": "python",
+  "base_sha": "4af040bf35186ef4cdd9f949b71ce9242c4527b0",
+  "head_sha": "d4bc5a6738f3a751dc8789b4fed0d31396f43385",
+  "workflow_file": ".github/workflows/ci.yml",
+  "run_id": 43222383782,
+  "run_url": "https://github.com/pydantic/pydantic-settings/actions/runs/43222383782",
+  "failing_job": "lint",
+  "failing_command": "pre-commit run --show-diff-on-failure --color=always --all-files",
+  "log_excerpt": "2026-11-12T12:55:43.0924523Z Lint.....................................................................Failed\n2026-11-12T12:55:43.0924917Z - hook id: lint\n2026-11-12T12:55:43.0925064Z - exit code: 2\n2026-11-12T12:55:43.0925218Z uv run ruff check pydantic_settings tests\n2026-11-12T12:55:43.0925498Z I001 [*] Import block is un-sorted or un-formatted\n2026-11-12T12:55:43.0925756Z   --> tests/test_settings.py:1:1\n2026-11-12T12:55:43.0959795Z help: Organize imports\n2026-11-12T12:55:43.0960054Z    |\n2026-11-12T12:55:43.0960274Z 70 |     SettingsConfigDict,\n2026-11-12T12:55:43.0960484Z 71 +     SettingsError,\n2026-11-12T12:55:43.0960697Z 72 |     SettingsFieldOpts,\n2026-11-12T12:55:43.0961095Z    -     SettingsError,\n2026-11-12T12:55:43.0961311Z 73 | )\n2026-11-12T12:55:43.0961475Z    |\n2026-11-12T12:55:43.0961613Z Found 1 error.\n2026-11-12T12:55:43.0961791Z [*] 1 fixable with `--fix`.\n2026-11-12T12:55:43.0961945Z make: *** [Makefile:26: lint] Error 1",
+  "changed_files": [
+    "docs/index.md",
+    "pydantic_settings/__init__.py",
+    "pydantic_settings/sources/__init__.py",
+    "pydantic_settings/sources/base.py",
+    "pydantic_settings/sources/providers/cli.py",
+    "pydantic_settings/sources/providers/dotenv.py",
+    "pydantic_settings/sources/types.py",
+    "tests/test_settings.py",
+    "tests/test_source_cli.py"
+  ],
+  "root_cause_label": "lint_format: tests/test_settings.py:71 — ruff check rule I001 fails because SettingsFieldOpts is imported before SettingsError out of alphabetical order",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "PR inserts SettingsFieldOpts before SettingsError in the from pydantic_settings import (...) block in tests/test_settings.py:71, failing ruff check rule I001."
+  }
+}

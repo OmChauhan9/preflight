@@ -1,0 +1,26 @@
+{
+  "id": "fail-24-pydantic-settings-pr-1140",
+  "status": "fail",
+  "repo": "pydantic/pydantic-settings",
+  "pr": 1140,
+  "pr_url": "https://github.com/pydantic/pydantic-settings/pull/1140",
+  "language": "python",
+  "base_sha": "cfbe8ad08734bbbeb2dae568035f3f1997d6d5b6",
+  "head_sha": "c1d50a0eaf9ae4ddcaa9fee9264aecae1ae6a272",
+  "workflow_file": ".github/workflows/ci.yml",
+  "run_id": 42394838282,
+  "run_url": "https://github.com/pydantic/pydantic-settings/actions/runs/42394838282",
+  "failing_job": "test py3.11 on ubuntu-latest",
+  "failing_command": "make test",
+  "log_excerpt": "2026-11-07T17:09:16.5628739Z >       assert CliApp.run(\n2026-11-07T17:09:16.5629150Z             PathsAliasNoDecode, cli_args=['--paths', f'{PATH_A_STR},{PATH_B_STR}', '--nums', '1,2']\n2026-11-07T17:09:16.5629593Z         ).model_dump() == {\n2026-11-07T17:09:16.5629839Z             'path_a': Path(PATH_A_STR),\n2026-11-07T17:09:16.5630119Z             'path_b': Path(PATH_B_STR),\n2026-11-07T17:09:16.5630383Z             'num_a': 1,\n2026-11-07T17:09:16.5630596Z             'num_b': 2,\n2026-11-07T17:09:16.5630803Z         }\n2026-11-07T17:09:16.5631154Z E       AssertionError: assert {'path_a': Po...1, 'num_b': 2} == {'path_a': Po...1, 'num_b': 2}\n2026-11-07T17:09:16.5632110Z E         Differing items:\n2026-11-07T17:09:16.5632791Z E         {'path_a': PosixPath('\\\\\\\\home\\\\\\\\runner\\\\\\\\work\\\\\\\\pydantic-settings\\\\\\\\pydantic-settings')} != {'path_a': PosixPath('\\\\home\\\\runner\\\\work\\\\pydantic-settings\\\\pydantic-settings')}\n2026-11-07T17:09:16.5633978Z E         {'path_b': PosixPath('\\\\\\\\home\\\\\\\\runner\\\\\\\\work\\\\\\\\pydantic-settings\\\\\\\\pydantic-settings\\\\\\\\subdir')} != {'path_b': PosixPath('\\\\home\\\\runner\\\\work\\\\pydantic-settings\\\\pydantic-settings\\\\subdir')}\n2026-11-07T17:09:16.5639571Z tests/test_source_cli.py:5079: AssertionError",
+  "changed_files": [
+    "pydantic_settings/sources/providers/cli.py",
+    "tests/test_source_cli.py"
+  ],
+  "root_cause_label": "unit_test: pydantic_settings/sources/providers/cli.py:772,875 & tests/test_source_cli.py:5079 — replacing f'\"{val_string}\"' with json.dumps(val_string) in _consume_string_or_number escapes backslashes unconditionally, doubling backslashes for NoDecode AliasPath CLI arguments",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "PR moves backslash escaping in pydantic_settings/sources/providers/cli.py from _merged_list_to_str (guarded by is_use_decode) to json.dumps(val_string) in _consume_string_or_number, causing NoDecode paths in tests/test_source_cli.py:5079 to have doubled backslashes."
+  }
+}

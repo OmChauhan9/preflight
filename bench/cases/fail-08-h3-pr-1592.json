@@ -1,0 +1,26 @@
+{
+  "id": "fail-08-h3-pr-1592",
+  "status": "fail",
+  "repo": "unjs/h3",
+  "pr": 1592,
+  "pr_url": "https://github.com/h3js/h3/pull/1592",
+  "language": "typescript",
+  "base_sha": "66cfb8a357b6285451bad498c2c40002601fae98",
+  "head_sha": "882e9f3a10479aca67ceb834b22d0d93144c4c4c",
+  "workflow_file": ".github/workflows/ci.yml",
+  "run_id": 38217788721,
+  "run_url": "https://github.com/h3js/h3/actions/runs/38217788721",
+  "failing_job": "tests",
+  "failing_command": "pnpm lint",
+  "log_excerpt": "2026-10-12T07:27:11.0883198Z ##[group]Run pnpm lint\n2026-10-12T07:27:11.0883516Z pnpm lint\n2026-10-12T07:27:11.0948630Z shell: /usr/bin/bash -e {0}\n2026-10-12T07:27:11.0950125Z ##[endgroup]\n2026-10-12T07:27:11.1563773Z $ oxlint . && oxfmt --check .\n2026-10-12T07:27:11.3029866Z Found 0 warnings and 0 errors.\n2026-10-12T07:27:11.3030552Z Finished in 62ms on 201 files with 95 rules using 4 threads.\n2026-10-12T07:27:11.4059191Z Checking formatting...\n2026-10-12T07:27:11.4060753Z \n2026-10-12T07:27:11.8843032Z docs/2.utils/9.more.md (0ms)\n2026-10-12T07:27:11.8890078Z \n2026-10-12T07:27:11.8891168Z Format issues found in above 1 files. Run without `--check` to fix.\n2026-10-12T07:27:11.8891931Z Finished in 478ms on 263 files using 4 threads.\n2026-10-12T07:27:11.9022675Z [ELIFECYCLE] Command failed with exit code 1.",
+  "changed_files": [
+    "docs/2.utils/9.more.md",
+    "src/utils/base.ts"
+  ],
+  "root_cause_label": "lint_format: docs/2.utils/9.more.md:22 — oxfmt --check fails on unformatted method-chain indentation in markdown TypeScript code block after removing trailing semicolon",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "PR edits docs/2.utils/9.more.md to chain .use() after new H3() with 1-space indentation, which fails oxfmt --check during pnpm lint."
+  }
+}

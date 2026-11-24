@@ -1,0 +1,26 @@
+{
+  "id": "fail-22-pydantic-settings-pr-1110",
+  "status": "fail",
+  "repo": "pydantic/pydantic-settings",
+  "pr": 1110,
+  "pr_url": "https://github.com/pydantic/pydantic-settings/pull/1110",
+  "language": "python",
+  "base_sha": "cc8df51d4f50c36e1dd82d5dd34c3a9789637400",
+  "head_sha": "db364258a67a3bb13acfa6e8ac3e23e59f36ebfb",
+  "workflow_file": ".github/workflows/ci.yml",
+  "run_id": 40857137123,
+  "run_url": "https://github.com/pydantic/pydantic-settings/actions/runs/40857137123",
+  "failing_job": "lint",
+  "failing_command": "pre-commit run --show-diff-on-failure --color=always --all-files",
+  "log_excerpt": "2026-10-29T10:23:28.3775348Z Lint.....................................................................Failed\n2026-10-29T10:23:28.3775837Z - hook id: lint\n2026-10-29T10:23:28.3776159Z - exit code: 2\n2026-10-29T10:23:28.3776464Z uv run ruff check pydantic_settings tests\n2026-10-29T10:23:28.3776957Z Q000 [*] Double quotes found but single quotes preferred\n2026-10-29T10:23:28.3777462Z     --> tests/test_settings.py:1954:60\n2026-10-29T10:23:28.3777796Z      |\n2026-10-29T10:23:28.3778147Z 1953 |     class Settings(BaseSettings):\n2026-10-29T10:23:28.3778744Z 1954 |         animal: Cat | Dog = Field(discriminator='t', alias=\"MY_ANIMAl\")\n2026-10-29T10:23:28.3779342Z      |                                                            ^^^^^^^^^^^\n2026-10-29T10:23:28.3779739Z 1955 |\n2026-10-29T10:23:28.3780097Z 1956 |     env.set('t', 'cat')\n2026-10-29T10:23:28.3780419Z      |\n2026-10-29T10:23:28.3780770Z help: Replace double quotes with single quotes\n2026-10-29T10:23:28.3784500Z Found 1 error.\n2026-10-29T10:23:28.3785164Z make: *** [Makefile:26: lint] Error 1",
+  "changed_files": [
+    "pydantic_settings/main.py",
+    "tests/test_settings.py"
+  ],
+  "root_cause_label": "lint_format: tests/test_settings.py:1954 — ruff check rule Q000 fails on double-quoted string literal alias=\"MY_ANIMAl\" where single quotes are required",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "PR adds tests in tests/test_settings.py using double quotes on alias=\"MY_ANIMAl\" at line 1954, failing ruff check rule Q000."
+  }
+}

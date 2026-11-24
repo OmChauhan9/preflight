@@ -1,0 +1,27 @@
+{
+  "id": "fail-14-jinja-pr-2264",
+  "status": "fail",
+  "repo": "pallets/jinja",
+  "pr": 2264,
+  "pr_url": "https://github.com/pallets/jinja/pull/2264",
+  "language": "python",
+  "base_sha": "5ef70112a1ff19c05324ff889dd30405b1002044",
+  "head_sha": "804ed4537e8cf38d9a81933680435054d412b888",
+  "workflow_file": ".github/workflows/tests.yaml",
+  "run_id": 33924620114,
+  "run_url": "https://github.com/pallets/jinja/actions/runs/33924620114",
+  "failing_job": "typing",
+  "failing_command": "uv run --locked tox run -e typing",
+  "log_excerpt": "2026-09-04T22:14:16.2497176Z typing: commands[0]> mypy\n2026-09-04T22:14:28.2932521Z src/jinja2/lexer.py:654: error: Argument 2 to \"simplefilter\" has incompatible\n2026-09-04T22:14:28.2933459Z type \"tuple[type[DeprecationWarning], type[SyntaxWarning]]\"; expected\n2026-09-04T22:14:28.2933928Z \"type[Warning]\"  [arg-type]\n2026-09-04T22:14:28.2934300Z                                 \"ignore\", (DeprecationWarning, SyntaxWarni...\n2026-09-04T22:14:28.2934999Z                                           ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n2026-09-04T22:14:28.3785871Z Found 1 error in 1 file (checked 25 source files)\n2026-09-04T22:14:28.3885957Z typing: exit 1 (12.14 seconds) /home/runner/work/jinja/jinja> mypy pid=2401\n2026-09-04T22:14:28.3891906Z   typing: FAIL code 1 (13.13=setup[0.99]+cmd[12.14] seconds)\n2026-09-04T22:14:28.3892407Z   evaluation failed :( (13.47 seconds)",
+  "changed_files": [
+    "CHANGES.rst",
+    "src/jinja2/lexer.py",
+    "tests/test_lexnparse.py"
+  ],
+  "root_cause_label": "typecheck: src/jinja2/lexer.py:654 — warnings.simplefilter('ignore', (DeprecationWarning, SyntaxWarning)) passes a tuple of warning classes instead of a single type[Warning], failing mypy [arg-type]",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "PR adds warnings.simplefilter(\"ignore\", (DeprecationWarning, SyntaxWarning)) in src/jinja2/lexer.py:653-655, which fails mypy [arg-type] because simplefilter's category parameter accepts type[Warning], not a tuple."
+  }
+}

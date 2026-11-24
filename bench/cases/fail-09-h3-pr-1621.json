@@ -1,0 +1,27 @@
+{
+  "id": "fail-09-h3-pr-1621",
+  "status": "fail",
+  "repo": "unjs/h3",
+  "pr": 1621,
+  "pr_url": "https://github.com/h3js/h3/pull/1621",
+  "language": "typescript",
+  "base_sha": "f0e17808ac2439b6434bb10609a961067f4d555b",
+  "head_sha": "63bbb2eda9fa3577605869930cdd13d52947ff9d",
+  "workflow_file": ".github/workflows/ci.yml",
+  "run_id": 40881391382,
+  "run_url": "https://github.com/h3js/h3/actions/runs/40881391382",
+  "failing_job": "tests",
+  "failing_command": "pnpm vitest --coverage",
+  "log_excerpt": "2026-10-29T13:23:28.8895494Z \u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 4 \u23af\u23af\u23af\u23af\u23af\u23af\u23af\n2026-10-29T13:23:28.8897699Z  FAIL  test/cache.test.ts > withCacheIsolation > web > keeps middleware and handler `Server-Timing` entries, middleware first (web)\n2026-10-29T13:23:28.8899312Z  FAIL  test/cache.test.ts > withCacheIsolation > node > keeps middleware and handler `Server-Timing` entries, middleware first (node)\n2026-10-29T13:23:28.8902636Z AssertionError: expected 'mw;dur=1, handler;dur=2' to be 'mw;dur=1' // Object.is equality\n2026-10-29T13:23:28.8903292Z Expected: \"mw;dur=1\"\n2026-10-29T13:23:28.8903727Z Received: \"mw;dur=1, handler;dur=2\"\n2026-10-29T13:23:28.8904243Z  \u276f test/cache.test.ts:222:46\n2026-10-29T13:23:28.8950978Z     220|     // The handler's metrics describe the request that filled the entr\u2026\n2026-10-29T13:23:28.8951829Z     221|     const hit = await t.fetch(\"/cached\");\n2026-10-29T13:23:28.8952522Z     222|     expect(hit.headers.get(\"server-timing\")).toBe(\"mw;dur=1\");\n2026-10-29T13:23:28.8953219Z        |                                              ^\n2026-10-29T13:23:28.8955720Z  FAIL  test/rules/cache.test.ts > cache rule (isolation & credential safety) > does not replay a handler's `Server-Timing` from the cache\n2026-10-29T13:23:28.8957000Z AssertionError: expected 'mw;dur=1, handler;dur=2' to be 'mw;dur=1' // Object.is equality\n2026-10-29T13:23:28.8960023Z  \u276f test/rules/cache.test.ts:374:46\n2026-10-29T13:23:28.9079956Z  FAIL  test/rules/cache.test.ts > cache rule (isolation & credential safety) > does not replay a handler's `Server-Timing` without middleware entries\n2026-10-29T13:23:28.9081134Z AssertionError: expected 'handler;dur=2' to be null\n2026-10-29T13:23:28.9082938Z  \u276f test/rules/cache.test.ts:389:46",
+  "changed_files": [
+    "src/utils/internal/staged-headers.ts",
+    "test/cache.test.ts",
+    "test/rules/cache.test.ts"
+  ],
+  "root_cause_label": "unit_test: src/utils/internal/staged-headers.ts:74-79,101 & test/cache.test.ts:222, test/rules/cache.test.ts:374,389 — PR updates staged-headers.ts to merge/order Server-Timing and adds 4 tests expecting cache hits not to replay handler Server-Timing, but cached responses still retain and replay 'handler;dur=2'",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "PR updates mergeStagedHeaders/withStagedHeaders in src/utils/internal/staged-headers.ts and adds 4 tests in test/cache.test.ts and test/rules/cache.test.ts expecting cache HITs not to replay handler Server-Timing, without stripping server-timing from cached entries."
+  }
+}

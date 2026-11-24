@@ -1,0 +1,25 @@
+{
+  "id": "pass-09-httpx-pr-3847",
+  "status": "pass",
+  "repo": "encode/httpx",
+  "pr": 3847,
+  "pr_url": "https://github.com/encode/httpx/pull/3847",
+  "language": "python",
+  "base_sha": "7cff5f79bc78649bbcd3fd9aa7a74c86e0f63016",
+  "head_sha": "38871fdd3cff77c2560131fe695a2c5d055af2ea",
+  "workflow_file": ".github/workflows/test-suite.yml",
+  "run_id": 44567556676,
+  "run_url": "https://github.com/encode/httpx/actions/runs/44567556676",
+  "failing_job": null,
+  "failing_command": null,
+  "log_excerpt": null,
+  "changed_files": [
+    "httpx/_urlparse.py"
+  ],
+  "root_cause_label": "passing: optimize URL validation in httpx/_urlparse.py using compiled ASCII_CONTROL_REGEX and a fast path in quote() when '%' is absent",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "CI workflow succeeded on head_sha; verified code diff."
+  }
+}

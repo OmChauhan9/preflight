@@ -1,0 +1,33 @@
+{
+  "id": "fail-02-express-pr-7112",
+  "status": "fail",
+  "repo": "expressjs/express",
+  "pr": 7112,
+  "pr_url": "https://github.com/expressjs/express/pull/7112",
+  "language": "javascript",
+  "base_sha": "0dee2c52c7c873498f8ed7d8ee4ddd0a04d3ada8",
+  "head_sha": "5a7a81928ec44abbfa8b592c6fda326fbf3ac8c9",
+  "workflow_file": ".github/workflows/ci.yml",
+  "run_id": 40023969758,
+  "run_url": "https://github.com/expressjs/express/actions/runs/40023969758",
+  "failing_job": "Node.js 18 - windows-latest",
+  "failing_command": "npm run test-ci",
+  "log_excerpt": "2026-10-23T21:04:32.3718288Z   1283 passing (3s)\n2026-10-23T21:04:32.3718486Z   2 pending\n2026-10-23T21:04:32.3718724Z   2 failing\n2026-10-23T21:04:32.3718826Z \n2026-10-23T21:04:32.3734863Z   1) app\n2026-10-23T21:04:32.3735053Z        .render(name, fn)\n2026-10-23T21:04:32.3735283Z          engine caching\n2026-10-23T21:04:32.3736562Z            should cache an automatically loaded engine:\n2026-10-23T21:04:32.3736854Z \n2026-10-23T21:04:32.3739003Z       Uncaught AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n2026-10-23T21:04:32.3739780Z + actual - expected\n2026-10-23T21:04:32.3739903Z \n2026-10-23T21:04:32.3739977Z + '<p>tobi</p>\\r\\n'\n2026-10-23T21:04:32.3740126Z - '<p>tobi</p>\\n'\n2026-10-23T21:04:32.3740291Z                ^\n2026-10-23T21:04:32.3740501Z       + expected - actual\n2026-10-23T21:04:32.3740627Z \n2026-10-23T21:04:32.3740709Z       -<p>tobi</p>\n2026-10-23T21:04:32.3740900Z       +<p>tobi</p>\n2026-10-23T21:04:32.3741021Z       \n2026-10-23T21:04:32.3741165Z       at D:\\a\\express\\express\\test\\app.render.js:359:18\n2026-10-23T21:04:32.3741625Z       at renderTick (lib\\view.js:50:134)\n2026-10-23T21:04:32.3741877Z       at process.processTicksAndRejections (node:internal/process/task_queues:77:11)",
+  "changed_files": [
+    "test/app.listen.js",
+    "test/app.render.js",
+    "test/fixtures/user.ejs",
+    "test/req.is.js",
+    "test/res.append.js",
+    "test/res.jsonp.js",
+    "test/res.render.js",
+    "test/res.sendFile.js",
+    "test/view.js"
+  ],
+  "root_cause_label": "unit_test: test/app.render.js:359,376 & test/fixtures/user.ejs — new engine caching tests hardcode LF ('<p>tobi</p>\\n') while Windows checkout produces CRLF ('<p>tobi</p>\\r\\n') when rendering test/fixtures/user.ejs",
+  "label_verified": {
+    "checked_against_log": true,
+    "checked_against_diff": true,
+    "notes": "PR adds test/fixtures/user.ejs and two engine caching tests in test/app.render.js (lines 359 and 376) that assert '<p>tobi</p>\\n', failing with ERR_ASSERTION against '<p>tobi</p>\\r\\n' on Windows."
+  }
+}

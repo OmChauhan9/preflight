@@ -1,0 +1,45 @@
+{
+  "name": "preflight",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Fast, verifiable CI pre-checks for AI coding agents using any OpenAI-compatible LLM (local Ollama by default).",
+  "keywords": [
+    "ci",
+    "cli",
+    "preflight",
+    "ai-agents",
+    "coding-agents",
+    "ollama",
+    "openai-compatible",
+    "llm",
+    "developer-tools"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "preflight": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "preflight": "node dist/cli.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "@types/node": "^22.10.0",
+    "eslint": "^9.18.0",
+    "globals": "^15.14.0",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.19.0",
+    "vitest": "^3.0.0"
+  }
+}
