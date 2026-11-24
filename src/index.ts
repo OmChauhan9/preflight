@@ -19,4 +19,12 @@ export {
   type ExplainOptions,
   type ExplainResult,
 } from './explain/index.js';
+export {
+  formatBenchReport,
+  runBench,
+  type BenchClientMeta,
+  type BenchOptions,
+  type BenchReport,
+  type BenchStatusFilter,
+} from './bench/index.js';
 export * from './check.js';

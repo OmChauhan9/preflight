@@ -251,7 +251,7 @@ describe('generic Preflight Agent Skill (skills/preflight/SKILL.md)', () => {
 describe('agent setup documentation (docs/agent-setup.md)', () => {
   const agentSetupDoc = readFileSync(AGENT_SETUP_PATH, 'utf8');
 
-  it('documents local Ollama default, PREFLIGHT_PROVIDER presets, and secret hygiene', () => {
+  it('documents local Ollama default, PREFLIGHT_PROVIDER presets, all CLI commands, and secret hygiene', () => {
     expect(agentSetupDoc).toContain('ollama');
     expect(agentSetupDoc).toContain('http://localhost:11434/v1');
     expect(agentSetupDoc).toContain('qwen2.5-coder:7b');
@@ -261,8 +261,24 @@ describe('agent setup documentation (docs/agent-setup.md)', () => {
       expect(agentSetupDoc).toContain(preset);
     }
     expect(agentSetupDoc).toContain('.env');
+    expect(agentSetupDoc).toContain('preflight check --json');
+    expect(agentSetupDoc).toContain('preflight explain');
     expect(agentSetupDoc).toContain('preflight init --hook');
+    expect(agentSetupDoc).toContain('preflight bench --out bench/results');
     expect(agentSetupDoc).toContain('pre-push');
+    expect(agentSetupDoc).not.toContain('not implemented');
+    expect(agentSetupDoc).not.toContain('Current Foundation Status');
+    expect(agentSetupDoc).not.toContain('Planned in Phase 1');
+    expect(agentSetupDoc.toLowerCase()).not.toContain('ci will pass');
+  });
+
+  it('documents the post-edit agent loop reading verdict, verify.results[], and think.likely_failures[]', () => {
+    expect(agentSetupDoc).toContain('verdict');
+    expect(agentSetupDoc).toContain('passed');
+    expect(agentSetupDoc).toContain('failed');
+    expect(agentSetupDoc).toContain('no_checks_run');
+    expect(agentSetupDoc).toContain('verify.results');
+    expect(agentSetupDoc).toContain('think.likely_failures');
   });
 
   it('documents multiple coding agents including Claude Code, Codex, Cursor, and OpenClaw', () => {
@@ -296,7 +312,7 @@ describe('skill and setup docs hygiene', () => {
 });
 
 describe('Preflight CLI smoke execution', () => {
-  it('runs runCli(["--help"]) and prints Phase 1 usage with exit code 0', async () => {
+  it('runs runCli(["--help"]) and prints full CLI usage with exit code 0', async () => {
     const captured = createCapturedIo();
     const exitCode = await runCli(['--help'], captured.io);
     const output = captured.stdout.join('\n');
@@ -306,6 +322,8 @@ describe('Preflight CLI smoke execution', () => {
     expect(output).toContain('check');
     expect(output).toContain('explain <log>');
     expect(output).toContain('init --hook');
+    expect(output).toContain('bench');
+    expect(output).not.toContain('not implemented');
     expect(captured.stderr).toEqual([]);
   });
 

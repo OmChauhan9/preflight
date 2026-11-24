@@ -1,8 +1,6 @@
 # Preflight Agent & CLI Setup Guide
 
-Preflight is a standalone, MIT-licensed CLI tool that works directly from your terminal or through a generic Agent Skill (`skills/preflight/SKILL.md`) across Claude Code, Codex, Cursor, OpenClaw, and Antigravity.
-
-> **Current Foundation Status:** In v0.1.0, `preflight check` is a CLI stub that prints `not implemented` and exits with code `0`. Core Gather, Think, and Verify execution lands in the next release.
+Preflight is a standalone, MIT-licensed CLI tool that runs scoped, exit-code-backed CI pre-checks locally before code is committed or pushed. It works directly from your terminal or through a generic Agent Skill (`skills/preflight/SKILL.md`) across Claude Code, Codex, Cursor, OpenClaw, and Antigravity.
 
 ## 1. Standalone CLI Setup
 
@@ -24,44 +22,69 @@ npm link
 Verify the CLI is on your `PATH`:
 
 ```bash
+preflight --help
 preflight check
 ```
 
 If you prefer not to link globally, invoke the CLI via `npx` or directly from the build output:
 
 ```bash
-npx preflight check
+npx --no-install preflight check --json
 # or inside a built repository checkout:
-node dist/cli.js check
+node dist/cli.js check --json
 ```
 
-### Provider Configuration ($0 Local Default + Cloud Presets)
+### Core CLI Commands
+
+All four Preflight commands are ready to use out of the box:
+
+- **Run scoped CI pre-checks (JSON for agents or human-readable terminal output):**
+  ```bash
+  preflight check --json
+  preflight check --base origin/main --timeout 60
+  ```
+- **Explain a CI failure log (local file or GitHub Actions URL) and optionally reproduce locally:**
+  ```bash
+  preflight explain path/to/ci.log --json
+  preflight explain https://github.com/<org>/<repo>/actions/runs/<run-id> --no-verify
+  ```
+- **Install the optional local git `pre-push` hook:**
+  ```bash
+  preflight init --hook
+  ```
+- **Run the curated benchmark suite and write Markdown/JSON reports:**
+  ```bash
+  preflight bench --out bench/results
+  preflight bench --status fail --language ts --limit 5 --json
+  ```
+
+### Provider Configuration ($0 Local Default + Free-Tier Cloud Presets)
 
 Preflight talks to any OpenAI-compatible `POST /chat/completions` endpoint and defaults to **local Ollama** (`$0`, no API key required, code stays on your machine):
 
 ```bash
 ollama pull qwen2.5-coder:7b
-preflight check
+preflight check --json
 ```
 
-To switch providers, set `PREFLIGHT_PROVIDER` and `PREFLIGHT_API_KEY` (or the provider-specific API key variable) in a local `.env` file or your shell environment, or pass `--provider <name>` on the command line:
+When you want faster hosted inference, Preflight also includes built-in presets for free-tier and hosted providers (`groq`, `gemini`, `openrouter`, `cerebras`, `openai`, and `custom`). Set `PREFLIGHT_PROVIDER` and `PREFLIGHT_API_KEY` (or the provider-specific key variable) in a gitignored `.env` file or your shell environment, or pass `--provider <name>` on the command line:
 
 | Provider (`PREFLIGHT_PROVIDER`) | Base URL (`PREFLIGHT_BASE_URL`) | Default Model (`PREFLIGHT_MODEL`) | Provider Key Env Fallback | Requires API Key |
 | --- | --- | --- | --- | --- |
 | `ollama` *(default)* | `http://localhost:11434/v1` | `qwen2.5-coder:7b` | `OLLAMA_API_KEY` *(optional)* | No ($0 local) |
-| `groq` | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` | `GROQ_API_KEY` | Yes |
-| `gemini` | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash` | `GEMINI_API_KEY` | Yes |
-| `openrouter` | `https://openrouter.ai/api/v1` | `qwen/qwen-2.5-coder-32b-instruct:free` | `OPENROUTER_API_KEY` | Yes |
+| `groq` *(free tier)* | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` | `GROQ_API_KEY` | Yes |
+| `gemini` *(free tier)* | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash` | `GEMINI_API_KEY` | Yes |
+| `openrouter` *(free tier)* | `https://openrouter.ai/api/v1` | `qwen/qwen-2.5-coder-32b-instruct:free` | `OPENROUTER_API_KEY` | Yes |
+| `cerebras` *(free tier)* | `https://api.cerebras.ai/v1` | `llama-3.3-70b` | `CEREBRAS_API_KEY` | Yes |
 | `openai` | `https://api.openai.com/v1` | `gpt-4o-mini` | `OPENAI_API_KEY` | Yes |
-| `cerebras` | `https://api.cerebras.ai/v1` | `llama-3.3-70b` | `CEREBRAS_API_KEY` | Yes |
 | `custom` | *(required via `PREFLIGHT_BASE_URL`)* | *(required via `PREFLIGHT_MODEL`)* | `PREFLIGHT_API_KEY` *(optional)* | Optional |
 
-Example shell configuration for a cloud preset:
+Example shell configuration for a free-tier cloud preset:
 
 ```bash
 export PREFLIGHT_PROVIDER=groq
 export PREFLIGHT_API_KEY="<your-groq-api-key>"
-preflight check
+preflight check --json
 ```
 
 Or using a local `.env` file copied from `.env.example`:
@@ -100,7 +123,7 @@ ln -s "$(pwd)/skills/preflight" .agents/skills/preflight
 
 ### Cursor
 
-Place or symlink `skills/preflight/` into `.cursor/skills/preflight/`, or instruct a Cursor rule in `.cursor/rules/` to follow `skills/preflight/SKILL.md` and run `preflight check` before commits:
+Place or symlink `skills/preflight/` into `.cursor/skills/preflight/`, or instruct a Cursor rule in `.cursor/rules/` to follow `skills/preflight/SKILL.md` and run `preflight check --json` before commits:
 
 ```bash
 mkdir -p .cursor/skills
@@ -121,26 +144,73 @@ openclaw skills info preflight
 
 Copy or symlink `skills/preflight/` into your workspace or user skills directory (for example `.agent/skills/preflight/`) and invoke the `preflight` skill before committing or pushing changes.
 
-### What Every Agent Runs
+### Post-Edit Agent Loop (`preflight check --json`)
 
 All agents following `skills/preflight/SKILL.md` invoke:
 
-1. `preflight check`
-2. Fallback: `node dist/cli.js check`
-3. Fallback: `npx --no-install preflight check`
+1. `preflight check --json`
+2. Fallback: `node dist/cli.js check --json`
+3. Fallback: `npx --no-install preflight check --json`
 
-Agents display `stdout`, `stderr`, and the exit code verbatim. Once the core pipeline ships, agents will run `preflight check --json` after code edits and before committing or pushing.
+Agents inspect the JSON report and exit code verbatim before committing or pushing:
 
-## 3. Planned Optional Git `pre-push` Hook (Phase 1)
+- **`verdict`**:
+  - `passed` (exit `0`): executed allowlisted checks passed (`"these checks passed"`).
+  - `no_checks_run` (exit `0`): no changed files or no allowlisted checks were executed (`"no allowlisted checks were executed"`).
+  - `failed` (exit `1`): one or more executed allowlisted checks failed or timed out (`"these checks failed"`).
+- **`verify.results[]`**: concrete exit-code-backed results for each allowlisted command (`command`, `status`, `exitCode`, `stdout`, `stderr`, `refusalReason`).
+- **`think.likely_failures[]`**: ranked predicted failure targets (`category`, `target`, `file`, `line`, `reason`, `confidence`) to narrow down root causes quickly.
 
-An optional local git hook installer is planned for Phase 1:
+Concrete post-edit agent loop example:
 
 ```bash
-# Planned in Phase 1 (not yet implemented)
+# 1. After editing code, run Preflight in structured JSON mode
+preflight check --json > /tmp/preflight-report.json
+EXIT_CODE=$?
+
+# 2. Inspect verdict, verify.results[], and think.likely_failures[]
+node -e '
+  const fs = require("node:fs");
+  const report = JSON.parse(fs.readFileSync("/tmp/preflight-report.json", "utf8"));
+
+  console.log("Verdict:", report.verdict, "-", report.verdictMessage);
+
+  if (report.verdict === "failed") {
+    console.log("Predicted likely failures:");
+    for (const item of report.think.likely_failures) {
+      const loc = item.file ? `${item.file}${item.line ? `:${item.line}` : ""}` : item.target;
+      console.log(`  - [${item.category}] ${loc}: ${item.reason}`);
+    }
+
+    console.log("Failed verification commands:");
+    for (const res of report.verify.results) {
+      if (res.status === "failed" || res.status === "timed_out") {
+        console.log(`  - ${res.command} (status=${res.status}, exit=${res.exitCode})`);
+        if (res.stderr) console.log(res.stderr);
+      }
+    }
+    process.exit(1);
+  }
+'
+
+# 3. If EXIT_CODE is non-zero: fix the root cause in code and re-run `preflight check --json`
+#    until `verdict` is `passed` (or `no_checks_run`), then commit or push.
+```
+
+Agents always report `stdout`, `stderr`, executed/refused commands, and exit codes verbatim, and never claim that remote CI is guaranteed to succeed.
+
+## 3. Optional Git `pre-push` Hook
+
+Install the opt-in local git hook in any repository:
+
+```bash
 preflight init --hook
 ```
 
-When implemented, `preflight init --hook` will install an opt-in `.git/hooks/pre-push` script that runs `preflight check` before every push and aborts on a non-zero exit code (bypassable anytime with `git push --no-verify`).
+This writes an executable `.git/hooks/pre-push` script that runs `preflight check` before every push and aborts on a non-zero exit code.
+
+- Use `preflight init --hook --force` if you explicitly want to replace an existing custom `pre-push` hook.
+- Bypass the hook anytime on a single push with `git push --no-verify`.
 
 ## 4. Secret Hygiene
 

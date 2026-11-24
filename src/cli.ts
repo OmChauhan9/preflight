@@ -3,6 +3,14 @@ import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  formatBenchReport,
+  runBench,
+  type BenchClientMeta,
+  type BenchOptions,
+  type BenchReport,
+  type BenchStatusFilter,
+} from './bench/index.js';
+import {
   formatCheckReport,
   runCheck,
   type CheckClientMeta,
@@ -58,6 +66,11 @@ export interface CliDependencies {
     client: LlmClient,
     clientMeta: ExplainClientMeta,
   ) => Promise<ExplainResult>;
+  runBenchFn?: (
+    options: BenchOptions,
+    client: LlmClient,
+    clientMeta: BenchClientMeta,
+  ) => Promise<BenchReport>;
   installHookFn?: typeof installPrePushHook;
   readFileFn?: (filePath: string) => string;
 }
@@ -68,6 +81,12 @@ const VALID_COMMANDS: ReadonlySet<string> = new Set<CliCommand>([
   'init',
   'bench',
 ]);
+
+const VALID_BENCH_STATUSES: readonly BenchStatusFilter[] = [
+  'fail',
+  'pass',
+  'all',
+];
 
 const ENV_SECRET_KEYS: readonly string[] = [
   'PREFLIGHT_API_KEY',
@@ -88,7 +107,7 @@ const USAGE = [
   '  check                  Run scoped CI pre-checks on current changes',
   '  explain <log>          Explain a CI failure log (local file or GitHub Actions URL)',
   '  init --hook            Install optional git pre-push hook',
-  '  bench                  Run benchmark suite (not implemented)',
+  '  bench                  Run curated benchmark suite and emit metrics',
   '',
   'Options:',
   '  --provider <ollama|groq|gemini|openrouter|openai|cerebras|custom>',
@@ -100,6 +119,13 @@ const USAGE = [
   '  --no-verify            Skip local reproduction check during explain',
   '  --hook                 Install the git pre-push hook (used with init)',
   '  --force                Overwrite an existing custom pre-push hook (used with init)',
+  '  --cases-dir <dir>      Benchmark cases directory (default: bench/cases)',
+  '  --case <id>            Run a single benchmark case by ID',
+  '  --status <fail|pass|all>',
+  '                         Filter benchmark cases by status (default: all)',
+  '  --language <lang>      Filter benchmark cases by language',
+  '  --limit <n>            Limit the number of benchmark cases to run',
+  '  --out <dir>            Write benchmark summary.md and results.json to directory',
   '  --json                 Emit machine-readable JSON output',
   '  --think                Enable model reasoning mode',
   '  -h, --help             Show this help message',
@@ -123,6 +149,12 @@ interface ParsedCliArgs {
   baseRef?: string;
   logFile?: string;
   timeoutMs?: number;
+  casesDir?: string;
+  caseId?: string;
+  status?: BenchStatusFilter;
+  language?: string;
+  limit?: number;
+  outDir?: string;
   json: boolean;
   think: boolean;
   noVerify: boolean;
@@ -150,6 +182,46 @@ function parseTimeoutMs(rawValue: string, io: CliIo): number | null {
     return null;
   }
   return Math.max(1, Math.round(seconds * 1000));
+}
+
+function parseBenchStatus(
+  rawValue: string,
+  io: CliIo,
+): BenchStatusFilter | null {
+  const normalized = rawValue.trim().toLowerCase();
+  if (
+    normalized === 'fail' ||
+    normalized === 'pass' ||
+    normalized === 'all'
+  ) {
+    return normalized;
+  }
+  io.stderr(
+    `Invalid value for --status: "${rawValue}". Expected one of: ${VALID_BENCH_STATUSES.join(', ')}.`,
+  );
+  return null;
+}
+
+function parsePositiveInt(
+  rawValue: string,
+  flagName: string,
+  io: CliIo,
+): number | null {
+  const trimmed = rawValue.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    io.stderr(
+      `Invalid value for ${flagName}: "${rawValue}". Expected a positive integer.`,
+    );
+    return null;
+  }
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    io.stderr(
+      `Invalid value for ${flagName}: "${rawValue}". Expected a positive integer.`,
+    );
+    return null;
+  }
+  return parsed;
 }
 
 function readFlagValue(
@@ -293,6 +365,74 @@ function parseCliArgs(
       continue;
     }
 
+    if (token === '--cases-dir' || token.startsWith('--cases-dir=')) {
+      const read = readFlagValue(argv, i, '--cases-dir', io);
+      if (!read.ok) {
+        return null;
+      }
+      parsed.casesDir = read.value;
+      i = read.nextIndex;
+      continue;
+    }
+
+    if (token === '--case' || token.startsWith('--case=')) {
+      const read = readFlagValue(argv, i, '--case', io);
+      if (!read.ok) {
+        return null;
+      }
+      parsed.caseId = read.value;
+      i = read.nextIndex;
+      continue;
+    }
+
+    if (token === '--status' || token.startsWith('--status=')) {
+      const read = readFlagValue(argv, i, '--status', io);
+      if (!read.ok) {
+        return null;
+      }
+      const status = parseBenchStatus(read.value, io);
+      if (status === null) {
+        return null;
+      }
+      parsed.status = status;
+      i = read.nextIndex;
+      continue;
+    }
+
+    if (token === '--language' || token.startsWith('--language=')) {
+      const read = readFlagValue(argv, i, '--language', io);
+      if (!read.ok) {
+        return null;
+      }
+      parsed.language = read.value;
+      i = read.nextIndex;
+      continue;
+    }
+
+    if (token === '--limit' || token.startsWith('--limit=')) {
+      const read = readFlagValue(argv, i, '--limit', io, true);
+      if (!read.ok) {
+        return null;
+      }
+      const limit = parsePositiveInt(read.value, '--limit', io);
+      if (limit === null) {
+        return null;
+      }
+      parsed.limit = limit;
+      i = read.nextIndex;
+      continue;
+    }
+
+    if (token === '--out' || token.startsWith('--out=')) {
+      const read = readFlagValue(argv, i, '--out', io);
+      if (!read.ok) {
+        return null;
+      }
+      parsed.outDir = read.value;
+      i = read.nextIndex;
+      continue;
+    }
+
     if (token.startsWith('-')) {
       io.stderr(`Unknown option: ${token}`);
       return null;
@@ -383,6 +523,7 @@ export async function runCli(
   const createClient = deps.createClient ?? createClientFromEnv;
   const runCheckFn = deps.runCheckFn ?? runCheck;
   const runExplainFn = deps.runExplainFn ?? runExplain;
+  const runBenchFn = deps.runBenchFn ?? runBench;
   const installHookFn = deps.installHookFn ?? installPrePushHook;
   const readFileFn =
     deps.readFileFn ?? ((filePath: string) => readFileSync(filePath, 'utf8'));
@@ -475,8 +616,43 @@ export async function runCli(
       }
 
       case 'bench': {
-        io.stdout('not implemented');
-        return 0;
+        const client = createClient(buildClientOptions(parsed, env));
+        const clientMeta: BenchClientMeta = {
+          provider: client.provider,
+          model: client.model,
+          baseUrl: client.baseUrl,
+        };
+
+        const benchOptions: BenchOptions = {
+          cwd,
+          think: parsed.think,
+        };
+        if (parsed.casesDir !== undefined) {
+          benchOptions.casesDir = path.resolve(cwd, parsed.casesDir);
+        }
+        if (parsed.caseId !== undefined) {
+          benchOptions.caseId = parsed.caseId;
+        }
+        if (parsed.status !== undefined) {
+          benchOptions.status = parsed.status;
+        }
+        if (parsed.language !== undefined) {
+          benchOptions.language = parsed.language;
+        }
+        if (parsed.limit !== undefined) {
+          benchOptions.limit = parsed.limit;
+        }
+        if (parsed.outDir !== undefined) {
+          benchOptions.outDir = path.resolve(cwd, parsed.outDir);
+        }
+
+        const report = await runBenchFn(benchOptions, client, clientMeta);
+        if (parsed.json) {
+          io.stdout(stringifyRedactedJson(report, envSecrets));
+        } else {
+          io.stdout(redactSecrets(formatBenchReport(report), envSecrets));
+        }
+        return report.metrics.errors > 0 ? 1 : 0;
       }
     }
   } catch (error: unknown) {
