@@ -1,0 +1,246 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { performance } from 'node:perf_hooks';
+import { redactSecrets } from '../clients/http.js';
+import type { LlmClient } from '../clients/types.js';
+import { computeTelemetry, sanitizeBaseUrl } from '../telemetry/index.js';
+import {
+  runThink,
+  ThinkValidationError,
+  type ThinkOptions,
+} from '../think/index.js';
+import { loadBenchCases } from './loader.js';
+import { renderBenchSummaryMarkdown } from './report.js';
+import {
+  aggregateBenchMetrics,
+  buildDefaultCaseContext,
+  scoreBenchCase,
+} from './scorer.js';
+import type {
+  BenchCaseResult,
+  BenchClientMeta,
+  BenchOptions,
+  BenchReport,
+  LoadBenchCasesOptions,
+} from './types.js';
+
+function roundOneDecimal(value: number): number {
+  const rounded = Math.round(value * 10) / 10;
+  return rounded === 0 ? 0 : rounded;
+}
+
+function serializeRedactedReportJson(report: BenchReport): string {
+  const json = JSON.stringify(
+    report,
+    (_key, value: unknown) =>
+      typeof value === 'string' ? redactSecrets(value) : value,
+    2,
+  );
+  return `${redactSecrets(json)}\n`;
+}
+
+/**
+ * Runs the sequential (single-flight) Preflight benchmark evaluation loop across
+ * loaded `bench/cases/*.json` cases, scores Think outputs against workflow-derived
+ * allowlists and ground-truth labels, and optionally writes `summary.md` and `results.json`.
+ */
+export async function runBench(
+  options: BenchOptions,
+  client: LlmClient,
+  clientMeta: BenchClientMeta,
+): Promise<BenchReport> {
+  if (
+    options.maxCompletionTokens !== undefined &&
+    (!Number.isInteger(options.maxCompletionTokens) ||
+      options.maxCompletionTokens <= 0)
+  ) {
+    throw new RangeError('maxCompletionTokens must be a positive integer');
+  }
+
+  if (
+    options.maxInputTokens !== undefined &&
+    (!Number.isFinite(options.maxInputTokens) || options.maxInputTokens < 0)
+  ) {
+    throw new RangeError('maxInputTokens must be a non-negative finite number');
+  }
+
+  const resolvedCasesDir =
+    options.casesDir !== undefined && options.casesDir.trim().length > 0
+      ? path.resolve(options.cwd, options.casesDir)
+      : path.resolve(options.cwd, 'bench/cases');
+
+  const loadOptions: LoadBenchCasesOptions = {
+    cwd: options.cwd,
+    casesDir: resolvedCasesDir,
+  };
+  if (options.caseId !== undefined) {
+    loadOptions.caseId = options.caseId;
+  }
+  if (options.status !== undefined) {
+    loadOptions.status = options.status;
+  }
+  if (options.language !== undefined) {
+    loadOptions.language = options.language;
+  }
+  if (options.limit !== undefined) {
+    loadOptions.limit = options.limit;
+  }
+
+  const cases = loadBenchCases(loadOptions);
+  const runTimestamp = new Date().toISOString();
+  const safeProvider = redactSecrets(clientMeta.provider);
+  const safeModel = redactSecrets(clientMeta.model);
+  const safeBaseUrl = sanitizeBaseUrl(clientMeta.baseUrl);
+
+  const thinkOptions: ThinkOptions = {};
+  if (options.think !== undefined) {
+    thinkOptions.think = options.think;
+  }
+  if (options.maxCompletionTokens !== undefined) {
+    thinkOptions.maxCompletionTokens = options.maxCompletionTokens;
+  }
+  if (
+    clientMeta.model.trim().length > 0 &&
+    clientMeta.model !== client.model
+  ) {
+    thinkOptions.model = clientMeta.model;
+  }
+
+  const results: BenchCaseResult[] = [];
+
+  // Strictly sequential single-flight execution across benchmark cases.
+  for (const benchCase of cases) {
+    const caseStartMs = performance.now();
+    let thinkStartMs: number | null = null;
+
+    try {
+      const context = options.loadCaseContext
+        ? await options.loadCaseContext(benchCase)
+        : buildDefaultCaseContext(benchCase, options.maxInputTokens);
+
+      thinkStartMs = performance.now();
+      const thinkResult = await runThink(
+        {
+          budgetedContext: context.budgetedContext,
+          workflowCommands: context.workflowCommands,
+          changedFiles: benchCase.changed_files,
+        },
+        client,
+        thinkOptions,
+      );
+      const measuredThinkMs = Math.max(0, performance.now() - thinkStartMs);
+      const thinkMs = Math.max(measuredThinkMs, thinkResult.wallTimeMs);
+
+      const score = scoreBenchCase(
+        benchCase,
+        thinkResult.output,
+        context.workflowCommands,
+      );
+
+      const measuredWallMs = Math.max(0, performance.now() - caseStartMs);
+      const totalWallMs = Math.max(measuredWallMs, thinkMs);
+
+      const telemetry = computeTelemetry({
+        provider: safeProvider,
+        model: safeModel,
+        base_url: safeBaseUrl,
+        usage: thinkResult.usage,
+        time_info: thinkResult.timeInfo,
+        timing_ms: {
+          gather_ms: 0,
+          think_ms: thinkMs,
+          verify_ms: 0,
+          total_wall_ms: totalWallMs,
+        },
+      });
+
+      results.push({
+        id: benchCase.id,
+        repo: benchCase.repo,
+        pr: benchCase.pr,
+        language: benchCase.language,
+        status: benchCase.status,
+        caught: score.caught,
+        commandCaught: score.commandCaught,
+        targetCaught: score.targetCaught,
+        falseAlarm: score.falseAlarm,
+        predictedCommands: score.predictedCommands,
+        allowedCommands: score.allowedCommands,
+        refusedCommands: score.refusedCommands,
+        affectedJobs: [...thinkResult.output.affected_jobs],
+        likelyFailureCount: thinkResult.output.likely_failures.length,
+        thinkAttempts: thinkResult.attempts,
+        wallTimeMs: telemetry.timing_ms.total_wall_ms,
+        thinkMs: telemetry.timing_ms.think_ms,
+        tokPerSec: telemetry.tok_per_s,
+        usage: telemetry.usage,
+        error: null,
+      });
+    } catch (error: unknown) {
+      const nowMs = performance.now();
+      const wallTimeMs = roundOneDecimal(Math.max(0, nowMs - caseStartMs));
+      const thinkMs =
+        thinkStartMs !== null
+          ? roundOneDecimal(Math.max(0, nowMs - thinkStartMs))
+          : 0;
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      const safeError = redactSecrets(rawMessage);
+
+      results.push({
+        id: benchCase.id,
+        repo: benchCase.repo,
+        pr: benchCase.pr,
+        language: benchCase.language,
+        status: benchCase.status,
+        caught: null,
+        commandCaught: null,
+        targetCaught: null,
+        falseAlarm: null,
+        predictedCommands: [],
+        allowedCommands: [],
+        refusedCommands: [],
+        affectedJobs: [],
+        likelyFailureCount: 0,
+        thinkAttempts: error instanceof ThinkValidationError ? error.attempts : 0,
+        wallTimeMs,
+        thinkMs,
+        tokPerSec: null,
+        usage: {
+          prompt_tokens: null,
+          completion_tokens: null,
+          total_tokens: null,
+        },
+        error: safeError,
+      });
+    }
+  }
+
+  const metrics = aggregateBenchMetrics(results);
+
+  const report: BenchReport = {
+    mode: 'triage',
+    provider: safeProvider,
+    model: safeModel,
+    baseUrl: safeBaseUrl,
+    runTimestamp,
+    casesDir: resolvedCasesDir,
+    metrics,
+    cases: results,
+  };
+
+  if (options.outDir !== undefined && options.outDir.trim().length > 0) {
+    const resolvedOutDir = path.resolve(options.cwd, options.outDir);
+    mkdirSync(resolvedOutDir, { recursive: true });
+    const summaryPath = path.join(resolvedOutDir, 'summary.md');
+    const resultsPath = path.join(resolvedOutDir, 'results.json');
+    report.writtenFiles = { summaryPath, resultsPath };
+
+    const summaryMarkdown = `${redactSecrets(renderBenchSummaryMarkdown(report))}\n`;
+    const resultsJson = serializeRedactedReportJson(report);
+
+    writeFileSync(summaryPath, summaryMarkdown, 'utf8');
+    writeFileSync(resultsPath, resultsJson, 'utf8');
+  }
+
+  return report;
+}
