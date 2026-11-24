@@ -136,31 +136,6 @@ function arraysEqual(a: readonly string[], b: readonly string[]): boolean {
   return true;
 }
 
-function inferNeutralJobName(command: string): string {
-  const lower = command.toLowerCase();
-  if (
-    lower.includes('typing') ||
-    lower.includes('mypy') ||
-    lower.includes('typecheck') ||
-    lower.includes('tsc') ||
-    lower.includes('pyright')
-  ) {
-    return 'typecheck';
-  }
-  if (
-    lower.includes('lint') ||
-    lower.includes('format') ||
-    lower.includes('ruff') ||
-    lower.includes('biome') ||
-    lower.includes('eslint') ||
-    lower.includes('pre-commit') ||
-    lower.includes('scripts/check')
-  ) {
-    return 'lint';
-  }
-  return 'test';
-}
-
 function buildWorkflowCommandsForCase(benchCase: BenchCase): VerifyWorkflowCommand[] {
   const repoKey = benchCase.repo.toLowerCase();
   const langKey = benchCase.language.toLowerCase();
@@ -171,30 +146,17 @@ function buildWorkflowCommandsForCase(benchCase: BenchCase): VerifyWorkflowComma
   const seen = new Set<string>();
   const commands: VerifyWorkflowCommand[] = [];
 
-  const pushUnique = (job: string, command: string): void => {
-    const trimmed = command.trim();
+  for (const spec of baseSpecs) {
+    const trimmed = spec.command.trim();
     if (trimmed.length === 0 || seen.has(trimmed)) {
-      return;
+      continue;
     }
     seen.add(trimmed);
     commands.push({
       file: benchCase.workflow_file,
-      job,
+      job: spec.job,
       command: trimmed,
     });
-  };
-
-  for (const spec of baseSpecs) {
-    pushUnique(spec.job, spec.command);
-  }
-
-  // Ensure any unlisted repo/custom failing_command is represented in the workflow
-  // allowlist without exposing ground-truth status or failing_job labels.
-  if (benchCase.status === 'fail' && benchCase.failing_command !== null) {
-    const trimmedFailing = benchCase.failing_command.trim();
-    if (trimmedFailing.length > 0 && !seen.has(trimmedFailing)) {
-      pushUnique(inferNeutralJobName(trimmedFailing), trimmedFailing);
-    }
   }
 
   return commands;

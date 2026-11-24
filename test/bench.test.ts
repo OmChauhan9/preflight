@@ -303,6 +303,37 @@ describe('buildDefaultCaseContext', () => {
     expect(tinyCtx.budgetedContext.length).toBeLessThanOrEqual(100);
     expect(tinyCtx.budgetedContext).toContain('...[truncated]');
   });
+
+  it('produces identical workflowCommands and budgetedContext for synthetic unknown-repo fail vs pass cases without leaking unlisted failing_command', () => {
+    const shared = {
+      repo: 'acme/unlisted-repo',
+      pr: 42,
+      pr_url: 'https://github.com/acme/unlisted-repo/pull/42',
+      language: 'typescript',
+      base_sha: '1111111111111111111111111111111111111111',
+      head_sha: '2222222222222222222222222222222222222222',
+      workflow_file: '.github/workflows/ci.yml',
+      changed_files: ['src/index.ts', 'test/index.test.ts'],
+    };
+
+    const syntheticFail = makeSampleFailCase({
+      ...shared,
+      id: 'fail-synthetic-42',
+      failing_job: 'custom-ci-job',
+      failing_command: 'custom-unlisted-runner --strict',
+    });
+    const syntheticPass = makeSamplePassCase({
+      ...shared,
+      id: 'pass-synthetic-42',
+    });
+
+    const failCtx = buildDefaultCaseContext(syntheticFail);
+    const passCtx = buildDefaultCaseContext(syntheticPass);
+
+    expect(failCtx.workflowCommands).toEqual(passCtx.workflowCommands);
+    expect(failCtx.budgetedContext).toBe(passCtx.budgetedContext);
+    expect(failCtx.budgetedContext).not.toContain('custom-unlisted-runner');
+  });
 });
 
 describe('scoreBenchCase', () => {
