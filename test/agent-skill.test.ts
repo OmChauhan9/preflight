@@ -230,15 +230,21 @@ describe('generic Preflight Agent Skill (skills/preflight/SKILL.md)', () => {
     }
   });
 
-  it('documents preflight check, fallbacks, verbatim output, stub status, and planned --json workflow', () => {
-    expect(body).toContain('preflight check');
-    expect(body).toContain('node dist/cli.js check');
-    expect(body).toContain('npx --no-install preflight check');
-    expect(body).toContain('not implemented');
+  it('documents the live Phase 1 preflight check --json workflow, fallbacks, verbatim output, and factual verdicts', () => {
     expect(body).toContain('preflight check --json');
+    expect(body).toContain('preflight check');
+    expect(body).toContain('node dist/cli.js check --json');
+    expect(body).toContain('npx --no-install preflight check --json');
+    expect(body).toContain('preflight explain');
+    expect(body).toContain('preflight init --hook');
     expect(body.toLowerCase()).toContain('verbatim');
     expect(body).toContain('stdout');
     expect(body).toContain('stderr');
+    expect(body).toContain('these checks passed');
+    expect(body).toContain('these checks failed');
+    expect(body).not.toContain('Foundation Stub');
+    expect(body).not.toContain('not implemented');
+    expect(body.toLowerCase()).not.toContain('ci will pass');
   });
 });
 
@@ -289,36 +295,31 @@ describe('skill and setup docs hygiene', () => {
   );
 });
 
-describe('Preflight CLI check end-to-end execution', () => {
-  it('runs runCli(["check"]) and outputs "not implemented" with exit code 0', () => {
+describe('Preflight CLI smoke execution', () => {
+  it('runs runCli(["--help"]) and prints Phase 1 usage with exit code 0', async () => {
     const captured = createCapturedIo();
-    const exitCode = runCli(['check'], captured.io);
+    const exitCode = await runCli(['--help'], captured.io);
+    const output = captured.stdout.join('\n');
 
     expect(exitCode).toBe(0);
-    expect(captured.stdout).toEqual(['not implemented']);
-    expect(captured.stderr).toEqual([]);
-  });
-
-  it('runs runCli(["check", "--json"]) without crashing and exits 0', () => {
-    const captured = createCapturedIo();
-    const exitCode = runCli(['check', '--json'], captured.io);
-
-    expect(exitCode).toBe(0);
-    expect(captured.stdout).toEqual(['not implemented']);
+    expect(output).toContain('Usage: preflight <command>');
+    expect(output).toContain('check');
+    expect(output).toContain('explain <log>');
+    expect(output).toContain('init --hook');
     expect(captured.stderr).toEqual([]);
   });
 
   it.runIf(existsSync(DIST_CLI_PATH))(
-    'executes built node dist/cli.js check and outputs "not implemented" with exit code 0',
+    'executes built node dist/cli.js --help with exit code 0',
     () => {
-      const result = spawnSync(process.execPath, [DIST_CLI_PATH, 'check'], {
+      const result = spawnSync(process.execPath, [DIST_CLI_PATH, '--help'], {
         cwd: REPO_ROOT,
         encoding: 'utf8',
       });
 
       expect(result.error).toBeUndefined();
       expect(result.status).toBe(0);
-      expect(result.stdout.trim()).toBe('not implemented');
+      expect(result.stdout).toContain('Usage: preflight <command>');
       expect(result.stderr).toBe('');
     },
   );
