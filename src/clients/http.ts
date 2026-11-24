@@ -92,8 +92,27 @@ export function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, '');
 }
 
+const DELTA_SECONDS_RE = /^\d+(?:\.\d+)?$/;
+const IMF_FIXDATE_RE =
+  /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),\s+\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\s+\d{2}:\d{2}:\d{2}\s+(?:GMT|UTC)$/;
+const RFC_850_DATE_RE =
+  /^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+\d{2}-(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2,4}\s+\d{2}:\d{2}:\d{2}\s+(?:GMT|UTC)$/;
+const ASCTIME_DATE_RE =
+  /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4}$/;
+const ISO_8601_DATETIME_RE =
+  /^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:[Zz]|[+-]\d{2}:\d{2})$/;
+
+function isValidRetryAfterDate(value: string): boolean {
+  return (
+    IMF_FIXDATE_RE.test(value) ||
+    RFC_850_DATE_RE.test(value) ||
+    ASCTIME_DATE_RE.test(value) ||
+    ISO_8601_DATETIME_RE.test(value)
+  );
+}
+
 /**
- * Parses an HTTP `Retry-After` header (delta-seconds or HTTP-date) into milliseconds.
+ * Parses an HTTP `Retry-After` header (delta-seconds or HTTP-date / ISO-8601 timestamp) into milliseconds.
  */
 export function parseRetryAfterMs(
   headerValue: string | null,
@@ -108,7 +127,7 @@ export function parseRetryAfterMs(
     return null;
   }
 
-  if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
+  if (DELTA_SECONDS_RE.test(trimmed)) {
     const seconds = Number(trimmed);
     if (Number.isFinite(seconds) && seconds >= 0) {
       return Math.ceil(seconds * 1000);
@@ -116,8 +135,12 @@ export function parseRetryAfterMs(
     return null;
   }
 
+  if (!isValidRetryAfterDate(trimmed)) {
+    return null;
+  }
+
   const parsedDateMs = Date.parse(trimmed);
-  if (!Number.isNaN(parsedDateMs)) {
+  if (Number.isFinite(parsedDateMs)) {
     return Math.max(0, parsedDateMs - nowMs);
   }
 
