@@ -466,8 +466,7 @@ export async function runExplain(
   if (
     options.verify !== false &&
     output.failing_command !== null &&
-    output.failing_command.trim().length > 0 &&
-    context.workflowCommands.length > 0
+    output.failing_command.trim().length > 0
   ) {
     const verifyStartMs = performance.now();
     const verifyOptions: VerifyOptions = { cwd: options.cwd };
