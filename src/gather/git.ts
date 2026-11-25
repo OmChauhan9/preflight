@@ -1,6 +1,12 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+  lstatSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  type Stats,
+} from 'node:fs';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type { GitDiffResult, GitExecFn } from './types.js';
 
 export const DEFAULT_GIT_MAX_BUFFER = 10 * 1024 * 1024;
@@ -277,6 +283,25 @@ export function resolveBaseRef(
   );
 }
 
+export function resolveRealRepoRoot(cwd: string): string | null {
+  try {
+    return realpathSync(cwd);
+  } catch {
+    return null;
+  }
+}
+
+export function isWithinRealRoot(
+  realRoot: string,
+  targetRealPath: string,
+): boolean {
+  const rel = relative(realRoot, targetRealPath);
+  return (
+    rel === '' ||
+    (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel))
+  );
+}
+
 function isLikelyBinary(buffer: Buffer): boolean {
   const sampleLen = Math.min(buffer.length, BINARY_SNIFF_BYTES);
   for (let i = 0; i < sampleLen; i += 1) {
@@ -287,11 +312,32 @@ function isLikelyBinary(buffer: Buffer): boolean {
   return false;
 }
 
-function buildSyntheticAddedFileDiff(cwd: string, relPath: string): string | null {
-  const fullPath = join(cwd, relPath);
-  let stats: ReturnType<typeof statSync>;
+function buildSyntheticAddedFileDiff(
+  cwd: string,
+  relPath: string,
+  realRoot: string | null,
+): string | null {
+  if (realRoot === null) {
+    return null;
+  }
+
+  const fullPath = resolve(cwd, relPath);
+  let lstats: Stats;
+  let realPath: string;
   try {
-    stats = statSync(fullPath);
+    lstats = lstatSync(fullPath);
+    realPath = realpathSync(fullPath);
+  } catch {
+    return null;
+  }
+
+  if (!isWithinRealRoot(realRoot, realPath)) {
+    return null;
+  }
+
+  let stats: Stats;
+  try {
+    stats = lstats.isSymbolicLink() ? statSync(realPath) : lstats;
   } catch {
     return null;
   }
@@ -313,7 +359,7 @@ function buildSyntheticAddedFileDiff(cwd: string, relPath: string): string | nul
 
   let buffer: Buffer;
   try {
-    buffer = readFileSync(fullPath);
+    buffer = readFileSync(realPath);
   } catch {
     return null;
   }
@@ -361,6 +407,60 @@ function parseLineList(output: string): string[] {
   return results;
 }
 
+function parseNameStatusList(output: string): string[] {
+  const results: string[] = [];
+  const seen = new Set<string>();
+  for (const rawLine of output.replace(/\r\n?/g, '\n').split('\n')) {
+    const trimmed = rawLine.trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+    const parts = rawLine.split('\t');
+    let rawPath: string | undefined;
+    if (
+      parts.length >= 3 &&
+      (parts[0]?.startsWith('R') || parts[0]?.startsWith('C'))
+    ) {
+      rawPath = parts[2];
+    } else if (parts.length >= 2) {
+      rawPath = parts[1];
+    } else {
+      rawPath = trimmed;
+    }
+    if (rawPath === undefined) {
+      continue;
+    }
+    const normalized = normalizeRepoPath(unquoteGitPath(rawPath));
+    if (normalized.length > 0 && !seen.has(normalized)) {
+      seen.add(normalized);
+      results.push(normalized);
+    }
+  }
+  return results;
+}
+
+function resolveMergeBase(
+  cwd: string,
+  baseRef: string,
+  gitExec: GitExecFn,
+): string {
+  try {
+    const output = gitExec(['merge-base', baseRef, 'HEAD'], cwd);
+    const firstLine = output.replace(/\r\n?/g, '\n').split('\n')[0]?.trim();
+    if (
+      firstLine !== undefined &&
+      firstLine.length > 0 &&
+      !firstLine.startsWith('-') &&
+      /^[0-9a-f]{7,64}$/i.test(firstLine)
+    ) {
+      return firstLine;
+    }
+  } catch {
+    // Fallback to baseRef when merge-base fails (e.g., unborn HEAD or shallow unrelated history).
+  }
+  return baseRef;
+}
+
 export interface CollectGitDiffOptions {
   cwd: string;
   baseRef?: string;
@@ -370,9 +470,10 @@ export interface CollectGitDiffOptions {
 export function collectGitDiff(options: CollectGitDiffOptions): GitDiffResult {
   const gitExec = options.gitExec ?? execGit;
   const baseRef = resolveBaseRef(options.cwd, options.baseRef, gitExec);
+  const diffRef = resolveMergeBase(options.cwd, baseRef, gitExec);
 
   let trackedDiff: string;
-  const diffArgs = ['diff', baseRef, '--'];
+  const diffArgs = ['diff', diffRef, '--'];
   try {
     trackedDiff = gitExec(diffArgs, options.cwd);
   } catch (error: unknown) {
@@ -389,10 +490,16 @@ export function collectGitDiff(options: CollectGitDiffOptions): GitDiffResult {
   const changedFileSet = new Set<string>();
 
   try {
-    const nameOnlyOutput = gitExec(['diff', '--name-only', baseRef, '--'], options.cwd);
-    const trimmedNameOnly = nameOnlyOutput.trimStart();
-    if (trimmedNameOnly.length > 0 && !trimmedNameOnly.startsWith('diff --git ')) {
-      for (const file of parseLineList(nameOnlyOutput)) {
+    const nameStatusOutput = gitExec(
+      ['diff', '--name-status', diffRef, '--'],
+      options.cwd,
+    );
+    const trimmedNameStatus = nameStatusOutput.trimStart();
+    if (
+      trimmedNameStatus.length > 0 &&
+      !trimmedNameStatus.startsWith('diff --git ')
+    ) {
+      for (const file of parseNameStatusList(nameStatusOutput)) {
         changedFileSet.add(file);
       }
     }
@@ -415,13 +522,18 @@ export function collectGitDiff(options: CollectGitDiffOptions): GitDiffResult {
     untrackedFiles = [];
   }
 
+  const realRoot = resolveRealRepoRoot(options.cwd);
   const syntheticDiffParts: string[] = [];
   for (const untrackedPath of untrackedFiles) {
     if (changedFileSet.has(untrackedPath)) {
       continue;
     }
     changedFileSet.add(untrackedPath);
-    const synthetic = buildSyntheticAddedFileDiff(options.cwd, untrackedPath);
+    const synthetic = buildSyntheticAddedFileDiff(
+      options.cwd,
+      untrackedPath,
+      realRoot,
+    );
     if (synthetic !== null) {
       syntheticDiffParts.push(synthetic);
     }

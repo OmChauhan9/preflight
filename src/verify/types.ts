@@ -1,5 +1,10 @@
 export const DEFAULT_TIMEOUT_MS = 60_000;
 export const DEFAULT_MAX_OUTPUT_BYTES = 32_768;
+export const DEFAULT_MAX_COMMANDS = 8;
+
+export interface CheckAllowlistOptions {
+  cwd?: string;
+}
 
 export interface VerifyWorkflowCommand {
   file: string;
@@ -88,5 +93,6 @@ export interface VerifyOptions {
   cwd: string;
   timeoutMs?: number;
   maxOutputBytes?: number;
+  maxCommands?: number;
   spawnCommand?: SpawnCommandFn;
 }

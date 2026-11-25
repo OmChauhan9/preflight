@@ -10,6 +10,57 @@ import {
 const MAX_KILL_GRACE_MS = 2_000;
 const MIN_KILL_GRACE_MS = 50;
 
+export const STRIPPED_CHILD_ENV_KEYS: readonly string[] = [
+  'PREFLIGHT_API_KEY',
+  'OLLAMA_API_KEY',
+  'GROQ_API_KEY',
+  'GEMINI_API_KEY',
+  'OPENROUTER_API_KEY',
+  'OPENAI_API_KEY',
+  'CEREBRAS_API_KEY',
+];
+
+const STRIPPED_CHILD_ENV_SET: ReadonlySet<string> = new Set(
+  STRIPPED_CHILD_ENV_KEYS,
+);
+
+function buildSanitizedChildEnv(
+  sourceEnv: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const sanitized: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(sourceEnv)) {
+    if (value === undefined) {
+      continue;
+    }
+    if (STRIPPED_CHILD_ENV_SET.has(key.toUpperCase())) {
+      continue;
+    }
+    sanitized[key] = value;
+  }
+  return sanitized;
+}
+
+function terminateChildProcess(
+  child: ChildProcess,
+  signal: NodeJS.Signals,
+  useProcessGroup: boolean,
+): void {
+  const pid = child.pid;
+  if (useProcessGroup && pid !== undefined && pid > 0) {
+    try {
+      process.kill(-pid, signal);
+      return;
+    } catch {
+      // Fallback to direct child.kill() if process group no longer exists or is unreachable.
+    }
+  }
+  try {
+    child.kill(signal);
+  } catch {
+    // Process may already have exited before signal was delivered.
+  }
+}
+
 class BoundedTailBuffer {
   private readonly maxBytes: number;
   private chunks: Buffer[] = [];
@@ -126,11 +177,14 @@ export function executeCommand(
       resolve(result);
     };
 
+    const useProcessGroup = process.platform !== 'win32';
     let child: ChildProcess;
     try {
       child = spawn(binary, [...args], {
         cwd: options.cwd,
+        env: buildSanitizedChildEnv(),
         shell: false,
+        detached: useProcessGroup,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
     } catch (error: unknown) {
@@ -159,20 +213,12 @@ export function executeCommand(
         return;
       }
       timedOut = true;
-      try {
-        child.kill('SIGTERM');
-      } catch {
-        // Process may already have exited before SIGTERM was delivered.
-      }
+      terminateChildProcess(child, 'SIGTERM', useProcessGroup);
       killTimer = setTimeout(() => {
         if (settled) {
           return;
         }
-        try {
-          child.kill('SIGKILL');
-        } catch {
-          // Process may already have exited before SIGKILL was delivered.
-        }
+        terminateChildProcess(child, 'SIGKILL', useProcessGroup);
         child.stdout?.destroy();
         child.stderr?.destroy();
       }, killGraceMs);
