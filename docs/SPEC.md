@@ -31,8 +31,9 @@ Preflight operates as a four-stage pipeline (`Gather → Think → Verify`, plus
 │    • git diff vs base branch & changed file paths                       │
 │    • Static import graph → test files transitively importing changes    │
 │    • Parsed .github/workflows/*.yml jobs & run commands                 │
-│    • Optional recent CI failure log excerpt                             │
-│    • Deterministic priority trimming to <= 20,000 input tokens          │
+│    • Optional recent CI failure log excerpt (recent_ci_log)             │
+│    • Deterministic priority trimming to <= 20,000 estimated context     │
+│      tokens (chars / 4, ~20K prompt tokens)                             │
 └───────────────────────────────────┬─────────────────────────────────────┘
                                     │
                                     ▼
@@ -42,7 +43,7 @@ Preflight operates as a four-stage pipeline (`Gather → Think → Verify`, plus
 │      model qwen2.5-coder:7b, $0 local-first, concurrency = 1)           │
 │    • Built-in presets: ollama, groq, gemini, openrouter,                │
 │      openai, cerebras, custom                                           │
-│    • Input: <= 20K tokens | max_completion_tokens: ~1,500               │
+│    • Input: <= 20,000 est. context tokens (~20K) | max_completion: 1,500│
 │    • Reasoning: off by default (opt-in via --think)                     │
 │    • Plain-text JSON output contract:                                   │
 │      { likely_failures[], affected_jobs[], commands[], notes }          │
@@ -71,12 +72,12 @@ Preflight operates as a four-stage pipeline (`Gather → Think → Verify`, plus
 
 Deterministic, zero-LLM local context collection:
 
-1. **Git Diff & Changed Files:** Runs `git diff` against the target base branch (or merge-base) to collect changed file paths, change statuses, and unified diff hunks.
-2. **Import Graph & Affected Tests:** Parses local JS/TS (`import`/`require`) and Python (`import`/`from ... import`) dependencies to identify test files that directly or transitively import modified source modules.
-3. **Workflow Command Extraction:** Parses `.github/workflows/*.yml` (and `.yaml`) files to extract job names, working directories, matrix hints, and `run:` shell steps (e.g., `npm test`, `npx vitest run`, `npm run typecheck`, `npm run lint`, `pytest`, `ruff check`, `mypy`).
-4. **Optional Recent CI Log:** If provided or available from recent failure state, attaches a bounded failure log excerpt.
-5. **Context Budgeting:** Priority-trims gathered context to guarantee the prompt stays within **`<= 20,000` input tokens** using the 5-tier priority order:
-   1. `(1) git diff`
+1. **Git Diff & Changed Files:** Resolves `git merge-base` against the target base ref and runs `git diff` to collect changed file paths, change statuses, and unified diff hunks without leaking unrelated upstream commits on the base branch.
+2. **Import Graph & Affected Tests:** Parses local JS/TS (`import`/`require`) and Python (`import`/`from ... import`) dependencies to identify test files that directly or transitively import modified source modules, blocking symlinks that resolve outside the repository root.
+3. **Workflow Command Extraction:** Parses `.github/workflows/*.yml` (and `.yaml`) files to extract job names, working directories, matrix hints, and `run:` shell steps (e.g., `npm test`, `npx vitest run`, `npm run typecheck`, `npm run lint`, `pytest`, `ruff check`, `mypy`), dropping shell builtins such as `cd`.
+4. **Optional Recent CI Log (`recent_ci_log`):** When provided via `--log`, attaches a bounded failure log excerpt immediately after `git diff`.
+5. **Context Budgeting:** Priority-trims gathered context to guarantee the prompt stays within **`<= 20,000` estimated context tokens** (`chars / 4`, `~20K` prompt tokens) using the 5-tier priority order (plus optional `recent_ci_log` right after `git diff`, with bounded space reserved for `recent_ci_log` and `ci_commands` when an oversized diff overflows):
+   1. `(1) git diff` *(plus optional `recent_ci_log`)*
    2. `(2) CI commands`
    3. `(3) changed files' tests`
    4. `(4) changed files`
@@ -87,8 +88,8 @@ Deterministic, zero-LLM local context collection:
 
 A single inference call executed through `OpenAICompatibleClient` (`POST {baseUrl}/chat/completions`):
 
-- **Token Budget:** `<= 20,000` input tokens; `max_completion_tokens` capped at **`~1,500`** so outputs remain concise and fit comfortably within local model context budgets and cloud free-tier rate limits.
-- **Reasoning Mode:** Off by default (and enabled explicitly via `--think`) so latency stays low and completions are not truncated by long chain-of-thought traces.
+- **Token Budget:** `<= 20,000` estimated context tokens (`chars / 4`, `~20K` prompt tokens); `max_completion_tokens` capped at **`~1,500`** so outputs remain concise and fit comfortably within local model context budgets and cloud free-tier rate limits.
+- **Reasoning Mode:** Off by default (and enabled explicitly via `--think`) so latency stays low and completions are not truncated by long chain-of-thought traces. When `--think` is enabled, requests include `reasoning_effort: "low"`, and `reasoning_format: "parsed"` is sent **only** on `groq` and `cerebras` (never to strict OpenAI, Google Gemini, Ollama, OpenRouter, or custom endpoints).
 - **Plain-Text JSON Contract:** Preflight does not depend on provider-specific tool calling (`tools`) or structured-output modes (`response_format: { type: "json_schema" }`), ensuring uniform behavior across local Ollama models and cloud endpoints. Instead, the system prompt specifies a strict plain-text JSON contract:
 
 ```json
@@ -125,10 +126,10 @@ Safe, deterministic local command execution:
 
 1. **Workflow-Derived Allowlist:**
    - Every candidate command in `commands[]` is validated against the baseline CI commands parsed from `.github/workflows/*.yml` during Gather.
-   - A command is **allowed** only if it uses the **same tool and subcommand** as a workflow command (e.g., `vitest run`, `mocha`, `jest`, `pytest`, `eslint`, `ruff check`, `tsc --noEmit`, `npm test`, `npm run <script>`) and only narrows scope via safe file paths or test-name filters inside the repository.
+   - A command is **allowed** only if it uses the **same tool and subcommand** as a workflow command (e.g., `vitest run`, `mocha`, `jest`, `pytest`, `eslint`, `ruff check`, `tsc --noEmit`, `npm test`, `npm run <script>`) and only narrows scope via safe repository-relative file paths or test-name filters inside the repository. Unmodeled tools and runners default to exact-match-only, baseline CI flags are preserved verbatim, Python interpreter binary path swaps and `@args.txt` argfiles are refused, and shell builtins like `cd` are dropped.
    - Any command containing arbitrary shell chaining (`;`, `&&`, `||`, `|`, `` ` ``, `$()`), redirection (`>`, `<`), path traversal (`..`), or binaries/subcommands absent from `.github/workflows/*.yml` is **refused and logged**.
-2. **Timeouts & Resource Limits:**
-   - Each command runs with `shell: false`, a configurable per-command timeout (60s default via `--timeout`), and bounded stdout/stderr tail capture (32 KiB per stream by default).
+2. **Timeouts, Env Isolation & Resource Limits:**
+   - Each command runs with `shell: false`, LLM API keys stripped from the child process environment, a configurable per-command timeout (60s default via `--timeout`), and bounded stdout/stderr tail capture (32 KiB per stream by default).
 3. **Exit-Code-Only Verdict:**
    - Each evaluated command in `verify.results[]` records `command`, `status` (`passed` | `failed` | `timed_out` | `refused`), `exitCode` (`number | null`), `durationMs`, `stdout`, `stderr`, plus optional `matchedWorkflowCommand` or `refusalReason` (and refused entries are mirrored in `verify.refusedCommands[]`).
    - The overall Verify result is determined **solely from the exit codes of executed commands**:
@@ -141,8 +142,8 @@ Safe, deterministic local command execution:
 
 Fast post-failure diagnosis and verified patch suggestion:
 
-1. **Input:** Accepts either a GitHub Actions run/job URL (fetched via `gh` CLI / GitHub API) or a path to a local CI log file, combined with the local `git diff` and `.github/workflows/*.yml` (falling back gracefully to log-only context when not in a git repository).
-2. **Diagnosis Call:** Sends the trimmed failure log excerpt + diff to the configured LLM via `OpenAICompatibleClient` (single call, `<= 20K` input tokens, plain-text JSON output + at most 1 retry on schema error) to produce:
+1. **Input:** Accepts either a GitHub Actions run/job URL (fetched via `gh api`; requires the `gh` CLI) or a path to a local CI log file, combined with the local `git diff` and `.github/workflows/*.yml` (falling back gracefully to log-only context when not in a git repository).
+2. **Diagnosis Call:** Sends the trimmed failure log excerpt + diff to the configured LLM via `OpenAICompatibleClient` (single call, `<= 20,000` estimated context tokens via `chars / 4`, plain-text JSON output + at most 1 retry on schema error) to produce:
    - `root_cause`: exact file, symbol/line, and explanation of why the diff triggered the CI failure.
    - `failing_command`: the workflow-derived command that failed, or `null` if none can be identified.
    - `suggested_patch`: minimal unified diff or concrete code change to resolve the failure.
@@ -170,11 +171,12 @@ Built on TypeScript + Node 22 (`>=22`). All four CLI commands are implemented in
 | :--- | :--- | :--- |
 | `--provider <ollama\|groq\|gemini\|openrouter\|openai\|cerebras\|custom>` | `check`, `explain`, `bench` | Select the OpenAI-compatible inference provider preset (defaults to `ollama` or `PREFLIGHT_PROVIDER`). |
 | `--model <name>` | `check`, `explain`, `bench` | Override the provider model identifier (or set `PREFLIGHT_MODEL`). |
+| `--env-file <path>` | all commands | Load environment variables from an explicit `.env` file (Preflight auto-loads `~/.config/preflight/.env` when present and does not auto-load repo-local `.env` files). |
 | `--base <ref>` | `check`, `explain` | Git base ref to diff against (default: auto-detect). |
 | `--log <file>` | `check` | Attach a recent CI failure log file to `check` context. |
 | `--timeout <seconds>` | `check`, `explain` | Per-command verification timeout in seconds (default: `60`). |
 | `--no-verify` | `explain` | Skip local reproduction check during `explain`. |
-| `--hook` | `init` | Install the git `pre-push` hook. |
+| `--hook` | `init` | Install the git `pre-push` hook *(required for `preflight init --hook`)*. |
 | `--force` | `init` | Overwrite an existing custom `pre-push` hook. |
 | `--cases-dir <dir>` | `bench` | Benchmark cases directory (default: `bench/cases`). |
 | `--case <id>` | `bench` | Run a single benchmark case by ID. |
@@ -183,7 +185,7 @@ Built on TypeScript + Node 22 (`>=22`). All four CLI commands are implemented in
 | `--limit <n>` | `bench` | Limit the number of benchmark cases to run. |
 | `--out <dir>` | `bench` | Write benchmark `summary.md` and `results.json` to directory. |
 | `--json` | all commands | Emit machine-readable, secret-redacted JSON output containing stage results, command exit codes, and Speed/Telemetry metrics. |
-| `--think` | `check`, `explain`, `bench` | Opt in to enable model reasoning mode during the Think / Explain call. |
+| `--think` | `check`, `explain`, `bench` | Opt in to enable model reasoning mode during the Think / Explain call (sends `reasoning_effort: "low"`; adds `reasoning_format: "parsed"` only on `groq` and `cerebras`). |
 | `-h`, `--help` | global | Display CLI usage information. |
 
 ### 3.2 Generic Agent Skill (`skills/preflight/SKILL.md` & `docs/agent-setup.md`)
@@ -203,14 +205,14 @@ Preflight packages a cross-platform Agent Skill adhering to the open [Agent Skil
 
 For developers and agent workflows that want automatic enforcement on every `git push` without manual agent prompting:
 
-- `preflight init --hook` installs an executable Preflight-managed `.git/hooks/pre-push` script (resolving standard `.git` directories as well as `gitdir:`/`commondir` pointers in linked git worktrees and submodules).
+- `preflight init --hook` (`--hook` is required) installs an executable Preflight-managed `.git/hooks/pre-push` script (resolving standard `.git` directories as well as `gitdir:`/`commondir` pointers in linked git worktrees and submodules).
 - Existing custom `pre-push` hooks are never overwritten unless `--force` is passed explicitly; re-running `preflight init --hook` on an already-managed hook is idempotent (`already_installed` / `updated`).
-- On `git push`, the hook invokes `preflight check` (falling back to `npx --no-install preflight check`) against the local working tree.
+- On `git push`, the hook invokes `preflight check` (falling back to a local `./node_modules/.bin/preflight` install) against the local working tree.
 - If all allowlisted checks exit with `0`, the push proceeds normally; if any executed check fails with a non-zero exit code, the push is aborted with a diagnostic report (and can be bypassed explicitly with `git push --no-verify` when needed).
 
 ### 3.4 Speed & Telemetry Panel
 
-Every human-readable CLI execution displays a **Speed & Telemetry Panel** (and `--json` includes the equivalent structured `telemetry` object) so users can compare local models and cloud providers:
+Every human-readable `preflight check` and `preflight explain` execution displays a **Speed & Telemetry Panel** (and `--json` includes the equivalent structured `telemetry` object) so users can compare local models and cloud providers. Separately, `preflight bench` aggregates per-case telemetry into its summary `metrics` object, and `preflight init --hook` emits hook installation status without invoking an LLM:
 
 - **Provider & Model Metadata:**
   - `provider` preset name, resolved `model` ID, and endpoint base URL.
@@ -279,7 +281,7 @@ Each file in `bench/cases/<id>.json` conforms to:
   "run_url": "https://github.com/expressjs/express/actions/runs/44581270820",
   "failing_job": "Node.js 18 - ubuntu-latest",
   "failing_command": "npm run test-ci",
-  "log_excerpt": "Verbatim 10-40 line excerpt from the failed GitHub Actions job log...",
+  "log_excerpt": "Verbatim 10–35 line excerpt from the failed GitHub Actions job log...",
   "changed_files": ["lib/application.js", "package.json", "test/app.listRoutes.js"],
   "root_cause_label": "unit_test: lib/application.js mount/listRoutes sub-app router handling causes 9 test failures in test/app.listRoutes.js",
   "label_verified": {
@@ -294,11 +296,23 @@ Each file in `bench/cases/<id>.json` conforms to:
 
 ### 5.3 Benchmark Metrics
 
-1. **Command / Job Selection Recall:** Fraction of failed-CI cases where Think's `affected_jobs[]` and allowlisted `commands[]` include the actual failing job/command (or a narrower scoped command covering the failing test/file).
-2. **Local Reproduction & Catch Rate:** On locally checked-out benchmark cases, fraction where executing Verify's selected commands catches the non-zero exit code before push.
-3. **Passing-PR Precision / False-Alarm Rate:** On passing-CI cases (when reproduced locally), fraction where Verify executes cleanly without false failures while running a scoped subset of checks.
-4. **Root-Cause Explanation Accuracy:** Fraction of failed-CI cases where `preflight explain` identifies the same root-cause file/symbol/defect as `root_cause_label`.
-5. **Speed & Throughput Telemetry:** Median and p95 `tok/s`, `think_ms`, optional `time_info.completion_time`, and total wall time across configured providers (`--provider ollama`, `groq`, `gemini`, `openrouter`, `openai`, `cerebras`, etc.).
+Preflight distinguishes its **automated `preflight bench` triage metrics** from **manual/offline local checkout and `preflight explain` evaluation protocols**:
+
+#### A. Automated `preflight bench` (`mode: "triage"`) Metrics
+
+Evaluated sequentially across `bench/cases/*.json` using symmetric per-repo CI workflow baselines (without checking out target repositories or leaking ground-truth labels into prompts):
+
+1. **`commandCaught`:** Count of failed-CI cases where at least one **allowlisted** predicted command matches the case's failing CI command/check.
+2. **`targetCaught` (Diagnostic):** Count of failed-CI cases where `think.likely_failures[]` matches reference target paths grounded in `root_cause_label` (and `failing_command`, falling back to `changed_files` only when `root_cause_label` contains no path tokens).
+3. **`caught`:** Equals **`commandCaught`** on failed-CI cases (requiring an allowlisted command match — naming a file in `likely_failures[]` without selecting an allowlisted command matching the failing CI check does not count as caught).
+4. **`falseAlarms`:** Count of passing-CI cases where `think.likely_failures.length > 0`.
+5. **`allowlistRefusals`:** Total number of model-proposed commands refused by the workflow-derived allowlist across evaluated cases.
+6. **Latency & Throughput Percentiles (`medianWallMs`, `p95WallMs`, `medianThinkMs`, `medianTokPerSec`):** Computed strictly over **non-errored cases** (`error === null`) so fast-failing request or validation errors do not skew latency/throughput distributions.
+
+#### B. Manual / Offline Evaluation Protocols (Outside Automated `mode: "triage"`)
+
+1. **Local Checkout Reproduction & Exit-Code Verification:** On locally checked-out benchmark commits (`head_sha`, such as the two `<1s` anchor reproductions in [`bench/REPRO.md`](../bench/REPRO.md)), executing Verify's allowlisted commands to measure real non-zero exit-code catch rate on failed-CI cases and clean pass rate on passing-CI cases.
+2. **Root-Cause Explanation Accuracy (`preflight explain`):** Offline evaluation running `preflight explain` on failed-CI logs to verify whether `root_cause` identifies the same file, symbol, and defect documented in `root_cause_label`.
 
 ### 5.4 Benchmark Honesty Rule
 
@@ -328,12 +342,12 @@ Preflight talks to all inference backends through a single `OpenAICompatibleClie
 
 | Parameter | Specification |
 | :--- | :--- |
-| **Config Precedence** | CLI flags (`--provider`, `--model`) → generic env vars (`PREFLIGHT_PROVIDER`, `PREFLIGHT_MODEL`, `PREFLIGHT_BASE_URL`, `PREFLIGHT_API_KEY`) → provider-specific env vars (`OLLAMA_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `CEREBRAS_API_KEY`) → preset defaults (`ollama`, `qwen2.5-coder:7b`, `http://localhost:11434/v1`). |
+| **Config Precedence & Env Isolation** | CLI flags (`--provider`, `--model`, `--env-file`) → generic env vars (`PREFLIGHT_PROVIDER`, `PREFLIGHT_MODEL`, `PREFLIGHT_BASE_URL`, `PREFLIGHT_API_KEY`) → provider-specific env vars (`OLLAMA_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `CEREBRAS_API_KEY`, used only with the preset's default base URL; overriding `PREFLIGHT_BASE_URL` requires explicit `PREFLIGHT_API_KEY`) → preset defaults (`ollama`, `qwen2.5-coder:7b`, `http://localhost:11434/v1`). Preflight auto-loads `~/.config/preflight/.env` when present (or an explicit `--env-file <path>`) and does not auto-load repo-local `.env` files. |
 | **Concurrency** | **Single-flight (`concurrency = 1`)** per process via an internal FIFO mutex queue so sequential or benchmark calls never flood local hardware or free-tier cloud rate limits. |
-| **Input Context Budget** | **`<= 20,000` input tokens** per call via deterministic priority trimming in 5-item order: (1) `git diff`, (2) CI commands, (3) changed files' tests, (4) changed files, (5) neighbors — trimmed in reverse priority order. |
+| **Input Context Budget** | **`<= 20,000` estimated context tokens** (`chars / 4`, `~20K` prompt tokens) per call via deterministic priority trimming in 5-tier order (+ optional `recent_ci_log` after `git diff` when `--log` is provided): (1) `git diff` (+ optional `recent_ci_log`), (2) CI commands, (3) changed files' tests, (4) changed files, (5) neighbors — trimmed in reverse priority order. |
 | **Output Token Cap** | **`max_completion_tokens: ~1,500`** (`<= 2,000`), preventing runaway completions and respecting providers that pre-charge `max_completion_tokens` against per-minute token quotas. |
 | **HTTP 429 Handling** | Honor `Retry-After` response header (delta-seconds or HTTP-date) when present; otherwise bounded exponential backoff with random jitter. |
-| **Secret Redaction** | API keys are read strictly from environment variables and redacted (`[REDACTED]`) from all error messages, stack traces, and debug logs. |
+| **Secret Redaction & Subprocess Isolation** | API keys are stripped from child CI subprocess environments and redacted (`[REDACTED]`) across error messages, stack traces, terminal reports, `--json`, and `--out` benchmark artifacts. |
 | **Structured Outputs / Tool Calling** | Do **not** depend on provider-specific `tools` or `response_format: json_schema`. Use plain-text JSON prompts + local schema validation + at most 1 retry. |
 | **Timing & Telemetry** | Always record client-side `wallTimeMs` (`performance.now()`) plus `usage` (`prompt_tokens`, `completion_tokens`, `total_tokens`), and capture optional provider `time_info` (`queue_time`, `prompt_time`, `completion_time`, `total_time`) when present in the JSON response. |
 
@@ -346,17 +360,18 @@ Preflight talks to all inference backends through a single `OpenAICompatibleClie
    - Provider-agnostic `OpenAICompatibleClient` (`src/clients/`) supporting `ollama` ($0 local default), `groq`, `gemini`, `openrouter`, `openai`, `cerebras`, and `custom` with single-flight queueing, HTTP 429 `Retry-After` backoff, and secret redaction.
    - CLI entry point (`src/cli.ts`), portable Agent Skill (`skills/preflight/SKILL.md`, `docs/agent-setup.md`), and curated 35-case real GitHub PR benchmark corpus (`bench/cases/*.json`, `bench/README.md`) with 2 local `<1s` reproductions (`bench/REPRO.md`).
 2. **Phase 1 — Core `Gather → Think → Verify` Pipeline & Telemetry (Complete):**
-   - `Gather` (`src/gather/`): git diff parser, JS/TS & Python static import graph, `.github/workflows/*.yml` command extractor, and 5-tier `<= 20K` token budgeter.
+   - `Gather` (`src/gather/`): git diff parser, JS/TS & Python static import graph, `.github/workflows/*.yml` command extractor, and 5-tier `<= 20,000` estimated context token (`chars / 4`) budgeter.
    - `Think` (`src/think/`): prompt builder, plain-text JSON extractor, schema validator, and 1-retry self-correction loop.
    - `Verify` (`src/verify/`): workflow-derived command allowlist validator (`shell: false`), subprocess runner with timeouts and bounded output capture, exit-code-only verdict reporter, and Speed & Telemetry panel (`src/telemetry/`).
 3. **Phase 2 — `Explain`, Git `pre-push` Hook, Agent Skill & `preflight bench` Runner (Complete):**
-   - `Explain` (`src/explain/`): `preflight explain <CI log URL or file>` with local file and GitHub Actions log loading, structured root-cause/patch diagnosis, and optional local reproduction (`--no-verify` opt-out).
+   - `Explain` (`src/explain/`): `preflight explain <CI log URL or file>` with local file and GitHub Actions log loading (`gh api`), structured root-cause/patch diagnosis, and optional local reproduction (`--no-verify` opt-out).
    - Git `pre-push` hook installer (`src/hooks/`): `preflight init --hook` (worktree/submodule-aware, custom hook protection with `--force`).
    - Benchmark evaluation runner (`src/bench/`): sequential `preflight bench` triage evaluation with `summary.md` and `results.json` export (`--out`), plus updated `skills/preflight/SKILL.md` and `docs/agent-setup.md`.
 4. **Phase 3 — Adversarial Hardening & Security Audit (Complete):**
-   - Hardened workflow allowlist against shell injection, path traversal (including URI/colon/drive/comma/multi-equals payloads), flag/target swaps, and `--exit-zero`, plus fail-closed `no_checks_run` handling and secret redaction verified by **299 Vitest tests across 12 test files** (including **76 adversarial stress & security tests** in `test/adversarial.test.ts`).
+   - Hardened workflow allowlist against shell injection, path traversal (including URI/colon/drive/comma/multi-equals payloads), flag/target swaps, and `--exit-zero`, plus fail-closed `no_checks_run` handling and secret redaction (299 Vitest tests across 12 test files at Phase 3 completion, expanded further in Phase 5).
 5. **Phase 4 — Story, README & Docs Polish (Complete):**
    - Authoritative v0.1.0 `README.md`, synced `docs/SPEC.md`, `docs/DECISIONS.md`, `docs/notes/agent-integrations.md`, `docs/agent-setup.md`, and `skills/preflight/SKILL.md` with zero stale scaffold text and exact code-verified flags/contracts.
-6. **Phase 5 — Final 3-Reviewer Audit Panel & Live Benchmark Run (Upcoming):**
-   - Independent 3-reviewer code, security, and documentation audit.
-   - Execute live `preflight bench --out bench/results` runs against local Ollama and free-tier cloud providers and publish verified recall, false-alarm, and throughput tables.
+6. **Phase 5 — Final 3-Reviewer Audit Panel & Remediation (Complete on Phase 5 PR):**
+   - Independent 3-reviewer code, security, and documentation panel review completed and remediated: env isolation (`~/.config/preflight/.env` + `--env-file`), custom `PREFLIGHT_BASE_URL` key guard, child CI subprocess key stripping, exact-match-only unmodeled tools, verbatim baseline flag retention, Python binary & `@args.txt` blocking, Gather symlink/merge-base hardening, provider-safe `--think` payload gating, honest `bench` command-catch scoring & non-errored percentiles, and full doc/skill alignment.
+7. **Live Benchmark Run (Upcoming):**
+   - Execute live `preflight bench --out bench/results` runs against local Ollama and cloud providers and publish verified recall, false-alarm, and throughput tables.

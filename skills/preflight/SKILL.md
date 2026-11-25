@@ -18,7 +18,7 @@ Preflight runs a four-stage pipeline:
 1. **Gather**: collects your git diff against the base ref, `.github/workflows/*.yml` commands, and affected tests (via the static import graph) within a strict token budget.
 2. **Think**: calls any OpenAI-compatible LLM (defaulting to local Ollama at `http://localhost:11434/v1` with `$0` cost and no API key required) to predict likely failures and select scoped CI commands.
 3. **Verify**: executes only commands allowlisted by repository CI workflows using `shell: false`, refusing any non-CI command without executing it.
-4. **Telemetry**: reports provider, token usage, throughput (`tok/s`), and per-stage wall-clock timing on every run.
+4. **Telemetry**: reports provider, token usage, throughput (`tok/s`), and per-stage wall-clock timing on `preflight check` and `preflight explain` runs (while `preflight bench` aggregates per-case telemetry into `metrics`, and `preflight init --hook` emits hook installation status).
 
 ## When to Use
 
@@ -37,16 +37,16 @@ Run this loop after making edits and before committing or pushing:
    ```
    (Use `preflight check` for human-readable terminal output with the Speed & Telemetry panel.)
 2. If `preflight` is not globally linked or available on `PATH`, fall back in order via `exec`:
-   - Built local repository checkout:
-     ```bash
-     node dist/cli.js check --json
-     ```
-     (or `node dist/cli.js check`)
    - Local project installation without downloading from the network:
      ```bash
      npx --no-install preflight check --json
      ```
      (or `npx --no-install preflight check`)
+   - Built local checkout — use `node dist/cli.js check --json` **only inside the Preflight repository checkout itself** (from any other target repository, pass the explicit path `node /path/to/preflight/dist/cli.js check --json`):
+     ```bash
+     node dist/cli.js check --json
+     ```
+     (or `node dist/cli.js check`)
 3. Interpret the structured output and exit code factually:
    - Exit code `0`: executed allowlisted checks passed (`"these checks passed"`) or no allowlisted checks needed to run (`"no allowlisted checks were executed"`).
    - Exit code `1`: at least one executed allowlisted check failed or timed out (`"these checks failed"`), or a CLI error occurred.
@@ -70,4 +70,4 @@ Run this loop after making edits and before committing or pushing:
 ## Secret Hygiene
 
 - Never hardcode API keys in prompts, configuration files, or repository files, and never echo secrets in output.
-- Preflight defaults to local Ollama (`http://localhost:11434/v1`, no API key required) and loads optional cloud provider keys solely from environment variables or a gitignored `.env` file.
+- Preflight defaults to local Ollama (`http://localhost:11434/v1`, no API key required) and loads optional cloud provider keys from exported environment variables, `~/.config/preflight/.env`, or an explicit `--env-file <path>` (repo-local `.env` files are not auto-loaded).
