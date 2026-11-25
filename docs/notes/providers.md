@@ -10,13 +10,13 @@ Preflight uses a single `OpenAICompatibleClient` that sends standard `POST {base
 
 ### Configuration Precedence
 
-1. **CLI Flags:** `--provider <preset>` and `--model <model-id>`
+1. **CLI Flags:** `--provider <preset>`, `--model <model-id>`, and `--env-file <path>` (optional explicit env file; `~/.config/preflight/.env` is auto-loaded when present, while repo-local `.env` files are not auto-loaded for security)
 2. **Generic Environment Variables:**
    - `PREFLIGHT_PROVIDER` (`ollama` | `groq` | `gemini` | `openrouter` | `openai` | `cerebras` | `custom`)
    - `PREFLIGHT_MODEL` (overrides the preset's default model ID)
    - `PREFLIGHT_BASE_URL` (overrides the preset's default base URL; required when `PREFLIGHT_PROVIDER=custom`)
-   - `PREFLIGHT_API_KEY` (overrides the provider-specific API key variable)
-3. **Provider-Specific Environment Variable Fallbacks:**
+   - `PREFLIGHT_API_KEY` (overrides the provider-specific API key variable; required when `PREFLIGHT_BASE_URL` overrides a preset's default URL so provider keys are never sent to custom endpoints)
+3. **Provider-Specific Environment Variable Fallbacks (preset default base URL only):**
    - `OLLAMA_API_KEY` *(optional)*, `GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `CEREBRAS_API_KEY`
 4. **Built-In Default:** `PREFLIGHT_PROVIDER=ollama`, `PREFLIGHT_BASE_URL=http://localhost:11434/v1`, `PREFLIGHT_MODEL=qwen2.5-coder:7b` (no API key required — **$0 local-first**).
 
@@ -50,7 +50,10 @@ Preflight uses a single `OpenAICompatibleClient` that sends standard `POST {base
   ```bash
   ollama serve
   ollama pull qwen2.5-coder:7b
-  npx preflight check
+  preflight check
+  # Or without global `npm link`:
+  # npx --no-install preflight check   # in a repo with preflight installed locally
+  # node dist/cli.js check             # inside a built Preflight repository checkout
   ```
 
 ### 2.2 `groq` (Groq Cloud LPU — Provider Free Tier Subject to Change)
@@ -154,3 +157,10 @@ On every completion call, `OpenAICompatibleClient` measures client-side `wallTim
 - `usage.prompt_tokens`, `usage.completion_tokens`, `usage.total_tokens`
 - Optional `time_info` (`queue_time`, `prompt_time`, `completion_time`, `total_time`) when provided by the server (e.g., Cerebras)
 - Effective generation throughput (`tok/s`), computed from `usage.completion_tokens / time_info.completion_time` when `time_info.completion_time > 0`, or `usage.completion_tokens / (wallTimeMs / 1000)` otherwise.
+
+### 3.4 Opt-In Reasoning Mode (`--think`)
+
+Reasoning mode is **off by default** to keep inference latency low and preserve `max_completion_tokens` for the plain-text JSON response. When `--think` is enabled:
+
+- `OpenAICompatibleClient` includes `reasoning_effort: "low"` in the `POST /chat/completions` JSON payload.
+- `reasoning_format: "parsed"` is a Groq/Cerebras extension and is included **only** when the active provider is `groq` or `cerebras` — it is never sent to strict OpenAI, Google Gemini, Ollama, OpenRouter, or `custom` endpoints (which can reject unknown top-level parameters with HTTP `400`).

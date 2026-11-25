@@ -29,6 +29,8 @@ A curated, hand-verified benchmark corpus of **35 real GitHub Pull Request CI ru
 | `pydantic/pydantic-settings` | Python | 8 (`#1051`, `#1070`, `#1080`, `#1092`, `#1110`, `#1138`, `#1140`, `#1147`) | 1 (`#1163`) | **9** |
 | **Total** | **JS/TS + Python** | **25** | **10** | **35** |
 
+> **Note:** On GitHub, `unjs/h3` redirects to `h3js/h3`; the `pr_url` and `run_url` fields in the `h3` case files reflect the canonical `h3js/h3` redirect.
+
 ### Failure Category Breakdown (25 Failed Cases)
 
 | Failure Category | Count | Cases |
