@@ -1,6 +1,13 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, posix } from 'node:path';
-import { normalizeRepoPath } from './git.js';
+import {
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  type Stats,
+} from 'node:fs';
+import { join, posix, resolve } from 'node:path';
+import { isWithinRealRoot, normalizeRepoPath, resolveRealRepoRoot } from './git.js';
 import type { FileSnippet, ImportGraphResult } from './types.js';
 
 const SKIPPED_DIR_NAMES = new Set([
@@ -91,10 +98,21 @@ function isSkippedRelativePath(relPath: string): boolean {
 }
 
 function walkRepoCodeFiles(cwd: string): string[] {
+  const realRoot = resolveRealRepoRoot(cwd);
+  if (realRoot === null) {
+    return [];
+  }
+
   const files: string[] = [];
+  const visitedRealDirs = new Set<string>([realRoot]);
 
   const walk = (absDir: string, relDir: string): void => {
-    let entries: Array<{ name: string; isDirectory: () => boolean; isFile: () => boolean }>;
+    let entries: Array<{
+      name: string;
+      isDirectory: () => boolean;
+      isFile: () => boolean;
+      isSymbolicLink: () => boolean;
+    }>;
     try {
       entries = readdirSync(absDir, { withFileTypes: true });
     } catch {
@@ -104,16 +122,72 @@ function walkRepoCodeFiles(cwd: string): string[] {
     for (const entry of entries) {
       const name = entry.name;
       const relPath = relDir.length > 0 ? `${relDir}/${name}` : name;
+      const fullPath = join(absDir, name);
+
+      if (entry.isSymbolicLink()) {
+        let realTarget: string;
+        let targetStats: Stats;
+        try {
+          realTarget = realpathSync(fullPath);
+          if (!isWithinRealRoot(realRoot, realTarget)) {
+            continue;
+          }
+          targetStats = statSync(realTarget);
+        } catch {
+          continue;
+        }
+
+        if (targetStats.isDirectory()) {
+          if (
+            SKIPPED_DIR_NAMES.has(name) ||
+            isSkippedRelativePath(relPath) ||
+            visitedRealDirs.has(realTarget)
+          ) {
+            continue;
+          }
+          visitedRealDirs.add(realTarget);
+          walk(fullPath, relPath);
+          continue;
+        }
+
+        if (
+          targetStats.isFile() &&
+          isSupportedCodeFile(relPath) &&
+          !isSkippedRelativePath(relPath)
+        ) {
+          files.push(relPath);
+        }
+        continue;
+      }
 
       if (entry.isDirectory()) {
         if (SKIPPED_DIR_NAMES.has(name) || isSkippedRelativePath(relPath)) {
           continue;
         }
-        walk(join(absDir, name), relPath);
+        let realDir: string;
+        try {
+          realDir = realpathSync(fullPath);
+        } catch {
+          continue;
+        }
+        if (!isWithinRealRoot(realRoot, realDir) || visitedRealDirs.has(realDir)) {
+          continue;
+        }
+        visitedRealDirs.add(realDir);
+        walk(fullPath, relPath);
         continue;
       }
 
       if (entry.isFile() && isSupportedCodeFile(relPath) && !isSkippedRelativePath(relPath)) {
+        let realFile: string;
+        try {
+          realFile = realpathSync(fullPath);
+        } catch {
+          continue;
+        }
+        if (!isWithinRealRoot(realRoot, realFile)) {
+          continue;
+        }
         files.push(relPath);
       }
     }
@@ -125,13 +199,24 @@ function walkRepoCodeFiles(cwd: string): string[] {
 }
 
 export function readFileContentSafe(cwd: string, relPath: string): string | null {
-  const fullPath = join(cwd, relPath);
+  const realRoot = resolveRealRepoRoot(cwd);
+  if (realRoot === null) {
+    return null;
+  }
+
+  const fullPath = resolve(cwd, relPath);
   try {
-    const stats = statSync(fullPath);
+    const lstats = lstatSync(fullPath);
+    const realPath = realpathSync(fullPath);
+    if (!isWithinRealRoot(realRoot, realPath)) {
+      return null;
+    }
+
+    const stats = lstats.isSymbolicLink() ? statSync(realPath) : lstats;
     if (!stats.isFile() || stats.size > MAX_READABLE_FILE_BYTES) {
       return null;
     }
-    const buf = readFileSync(fullPath);
+    const buf = readFileSync(realPath);
     const sniffLen = Math.min(buf.length, 4096);
     for (let i = 0; i < sniffLen; i += 1) {
       if (buf[i] === 0) {

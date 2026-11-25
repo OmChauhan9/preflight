@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +15,7 @@ import {
   loadWorkflowCommands,
   parseChangedFilesFromDiff,
   parseWorkflowYaml,
+  readFileContentSafe,
   resolveBaseRef,
   splitShellCommands,
   type BudgetContextParts,
@@ -736,5 +737,188 @@ describe('git diff collection & gatherContext', () => {
     expect(() =>
       gatherContext({ cwd: repoDir, baseRef: 'nonexistent-base-branch-xyz' }),
     ).toThrow(GatherGitError);
+  });
+
+  it('[R1-M6] uses git merge-base so unrelated upstream commits on main do not pollute changedFiles or diff', () => {
+    const repoDir = createTempDir('preflight-merge-base-');
+    const gitCommit = (message: string): void => {
+      runGit(repoDir, ['add', '.']);
+      runGit(repoDir, [
+        '-c',
+        'user.name=Preflight Test',
+        '-c',
+        'user.email=preflight@example.com',
+        '-c',
+        'commit.gpgsign=false',
+        'commit',
+        '-m',
+        message,
+      ]);
+    };
+
+    runGit(repoDir, ['init']);
+    runGit(repoDir, ['checkout', '-B', 'main']);
+    writeRepoFile(repoDir, 'src/shared.ts', 'export const v = 1;\n');
+    gitCommit('base commit on main');
+
+    // Branch feature from base commit
+    runGit(repoDir, ['checkout', '-b', 'feature']);
+    writeRepoFile(repoDir, 'src/feature.ts', 'export const feature = true;\n');
+    gitCommit('feature branch commit');
+
+    // Advance main with an unrelated upstream commit
+    runGit(repoDir, ['checkout', 'main']);
+    writeRepoFile(
+      repoDir,
+      'src/upstream_only.ts',
+      'export const upstreamOnly = "UPSTREAM_ONLY_SENTINEL";\n',
+    );
+    gitCommit('unrelated upstream commit on main');
+
+    // Return to feature branch and also add unstaged + untracked edits
+    runGit(repoDir, ['checkout', 'feature']);
+    writeRepoFile(repoDir, 'src/shared.ts', 'export const v = 2;\n');
+    writeRepoFile(repoDir, 'src/wip.ts', 'export const wip = true;\n');
+
+    const gathered = gatherContext({ cwd: repoDir, baseRef: 'main' });
+
+    expect(gathered.baseRef).toBe('main');
+    expect(gathered.changedFiles).toContain('src/feature.ts');
+    expect(gathered.changedFiles).toContain('src/shared.ts');
+    expect(gathered.changedFiles).toContain('src/wip.ts');
+    expect(gathered.changedFiles).not.toContain('src/upstream_only.ts');
+    expect(gathered.diff).not.toContain('UPSTREAM_ONLY_SENTINEL');
+    expect(gathered.diff).not.toContain('src/upstream_only.ts');
+  });
+
+  it('[R1-M6] parses --name-status output using mergeBase and falls back to baseRef if merge-base fails', () => {
+    const dir = createTempDir('preflight-merge-base-mock-');
+    const seenCalls: string[][] = [];
+    const mergeBaseSha = '1234567890abcdef1234567890abcdef12345678';
+
+    const mockWithMergeBase: GitExecFn = (args) => {
+      seenCalls.push(args);
+      if (args[0] === 'rev-parse') {
+        return 'deadbeef\n';
+      }
+      if (args[0] === 'merge-base') {
+        return `${mergeBaseSha}\n`;
+      }
+      if (args[0] === 'diff' && args[1] === '--name-status') {
+        return 'M\tsrc/a.ts\nR100\tsrc/old.ts\tsrc/new.ts\n';
+      }
+      if (args[0] === 'diff') {
+        return 'diff --git a/src/a.ts b/src/a.ts\n+const x = 1;\n';
+      }
+      if (args[0] === 'ls-files') {
+        return '';
+      }
+      throw new Error(`unexpected git call: ${args.join(' ')}`);
+    };
+
+    const res = collectGitDiff({ cwd: dir, baseRef: 'main', gitExec: mockWithMergeBase });
+    expect(res.baseRef).toBe('main');
+    expect(res.changedFiles).toEqual(['src/a.ts', 'src/new.ts']);
+    expect(seenCalls).toContainEqual(['merge-base', 'main', 'HEAD']);
+    expect(seenCalls).toContainEqual(['diff', mergeBaseSha, '--']);
+    expect(seenCalls).toContainEqual(['diff', '--name-status', mergeBaseSha, '--']);
+
+    // Fallback to baseRef when merge-base throws
+    const fallbackCalls: string[][] = [];
+    const mockFallback: GitExecFn = (args) => {
+      fallbackCalls.push(args);
+      if (args[0] === 'rev-parse') {
+        return 'deadbeef\n';
+      }
+      if (args[0] === 'merge-base') {
+        throw new Error('fatal: Not a valid object name HEAD');
+      }
+      if (args[0] === 'diff' && args[1] === '--name-status') {
+        return 'M\tsrc/fallback.ts\n';
+      }
+      if (args[0] === 'diff') {
+        return '';
+      }
+      if (args[0] === 'ls-files') {
+        return '';
+      }
+      throw new Error(`unexpected git call: ${args.join(' ')}`);
+    };
+
+    const fallbackRes = collectGitDiff({ cwd: dir, baseRef: 'main', gitExec: mockFallback });
+    expect(fallbackRes.baseRef).toBe('main');
+    expect(fallbackRes.changedFiles).toEqual(['src/fallback.ts']);
+    expect(fallbackCalls).toContainEqual(['diff', 'main', '--']);
+    expect(fallbackCalls).toContainEqual(['diff', '--name-status', 'main', '--']);
+  });
+
+  it('[R1-M4] skips symlinks escaping outside repo root in git diff synthesis and import graph', () => {
+    const repoDir = createTempDir('preflight-symlink-repo-');
+    const outsideDir = createTempDir('preflight-symlink-outside-');
+
+    writeRepoFile(
+      outsideDir,
+      'secret.ts',
+      'export const secret = "OUTSIDE_SECRET_SENTINEL";\n',
+    );
+    writeRepoFile(
+      outsideDir,
+      'outside.test.ts',
+      "import { real } from '../real.js';\nexport const leaked = 'OUTSIDE_TEST_SENTINEL';\n",
+    );
+
+    runGit(repoDir, ['init']);
+    runGit(repoDir, ['checkout', '-B', 'main']);
+    writeRepoFile(repoDir, 'src/real.ts', 'export const real = 1;\n');
+    writeRepoFile(
+      repoDir,
+      'test/real.test.ts',
+      "import { real } from '../src/real.js';\nexport const ok = real;\n",
+    );
+    runGit(repoDir, ['add', '.']);
+    runGit(repoDir, [
+      '-c',
+      'user.name=Preflight Test',
+      '-c',
+      'user.email=preflight@example.com',
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '-m',
+      'initial commit',
+    ]);
+
+    // Untracked escaping file symlink, escaping directory symlink, broken symlink, and valid internal symlink
+    symlinkSync(join(outsideDir, 'secret.ts'), join(repoDir, 'src', 'escape_file.ts'));
+    symlinkSync(outsideDir, join(repoDir, 'src', 'escape_dir'));
+    symlinkSync(
+      join(outsideDir, 'missing.ts'),
+      join(repoDir, 'src', 'broken_link.ts'),
+    );
+    symlinkSync(join(repoDir, 'src', 'real.ts'), join(repoDir, 'src', 'internal_link.ts'));
+
+    expect(readFileContentSafe(repoDir, 'src/escape_file.ts')).toBeNull();
+    expect(readFileContentSafe(repoDir, 'src/escape_dir/secret.ts')).toBeNull();
+    expect(readFileContentSafe(repoDir, 'src/broken_link.ts')).toBeNull();
+    expect(readFileContentSafe(repoDir, 'src/internal_link.ts')).toContain(
+      'export const real = 1;',
+    );
+
+    const diffResult = collectGitDiff({ cwd: repoDir });
+    expect(diffResult.diff).not.toContain('OUTSIDE_SECRET_SENTINEL');
+    expect(diffResult.diff).not.toContain('OUTSIDE_TEST_SENTINEL');
+
+    const graph = findAffectedTestsAndNeighbors(repoDir, ['src/real.ts']);
+    expect(graph.affectedTests.map((t) => t.path)).toEqual(['test/real.test.ts']);
+    const allGraphText = [
+      ...graph.affectedTests.map((f) => f.content),
+      ...graph.neighborContents.map((f) => f.content),
+    ].join('\n');
+    expect(allGraphText).not.toContain('OUTSIDE_SECRET_SENTINEL');
+    expect(allGraphText).not.toContain('OUTSIDE_TEST_SENTINEL');
+
+    const gathered = gatherContext({ cwd: repoDir });
+    expect(gathered.budgetedContext).not.toContain('OUTSIDE_SECRET_SENTINEL');
+    expect(gathered.budgetedContext).not.toContain('OUTSIDE_TEST_SENTINEL');
   });
 });

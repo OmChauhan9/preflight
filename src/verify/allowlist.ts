@@ -1,6 +1,14 @@
-import { posix as posixPath } from 'node:path';
+import { existsSync, realpathSync, statSync } from 'node:fs';
+import {
+  isAbsolute,
+  posix as posixPath,
+  relative,
+  resolve,
+  sep,
+} from 'node:path';
 import type {
   AllowlistDecision,
+  CheckAllowlistOptions,
   TokenizeResult,
   VerifyWorkflowCommand,
 } from './types.js';
@@ -23,33 +31,302 @@ const PYTHON_BINARY_RE = /^python(3(\.\d+)?)?$/;
 const SUBCOMMAND_TOKEN_RE = /^[a-z][a-z0-9_-]*$/i;
 const WINDOWS_DRIVE_RE = /^[A-Za-z]:/;
 const URL_SCHEME_RE =
-  /^(?:[A-Za-z][A-Za-z0-9+.-]*:(?:\/\/|[/\\])|(?:file|data|javascript|vbscript|blob|node):)/i;
+  /^(?:[A-Za-z][A-Za-z0-9+.-]*:(?:\/\/|[/\\])|git\+|(?:file|data|javascript|vbscript|blob|node|npm|jsr|bun|deno|github|gitlab|bitbucket):)/i;
+const REMOTE_HOST_PATH_RE =
+  /^(?:[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|org|net|io|dev|sh|gg|co|edu|gov|in|land|app)|localhost)(?::\d+)?\//i;
 const NON_NEGATIVE_INT_RE = /^\d+$/;
 const SAFE_RULE_LIST_RE = /^[A-Za-z0-9_,.-]+$/;
 
-const MULTI_SUBCOMMAND_TOOLS: ReadonlySet<string> = new Set([
-  'vitest',
-  'ruff',
-  'tox',
-  'biome',
-  'cargo',
-  'go',
-  'dotnet',
-  'npm',
-  'pnpm',
-  'yarn',
-  'uv',
-  'poetry',
-  'pdm',
-  'hatch',
-  'bun',
-  'deno',
-  'gradle',
-  'mvn',
-  'pre-commit',
+const SHELL_BUILTINS: ReadonlySet<string> = new Set([
+  'cd',
+  'export',
+  'set',
+  'unset',
+  'pushd',
+  'popd',
+  'source',
+  '.',
+  'echo',
+  'true',
+  'false',
+  'pwd',
+  'umask',
+  'alias',
+  'unalias',
+  'eval',
+  'exec',
+  'shift',
+  'exit',
+  'return',
+  'local',
+  'readonly',
+  'declare',
+  'trap',
+  ':',
 ]);
 
+const DISALLOWED_BARE_ACTION_WORDS: ReadonlySet<string> = new Set([
+  'deploy',
+  'publish',
+  'unpublish',
+  'release',
+  'install',
+  'uninstall',
+  'reinstall',
+  'remove',
+  'rm',
+  'delete',
+  'destroy',
+  'clean',
+  'purge',
+  'fix',
+  'autofix',
+  'exec',
+  'eval',
+  'run',
+  'shell',
+  'sh',
+  'bash',
+  'init',
+  'create',
+  'upgrade',
+  'update',
+  'add',
+  'link',
+  'unlink',
+  'login',
+  'logout',
+  'auth',
+  'push',
+  'pull',
+  'fetch',
+  'clone',
+  'apply',
+  'migrate',
+  'seed',
+  'drop',
+  'reset',
+  'format',
+  'fmt',
+  'write',
+  'edit',
+  'patch',
+  'audit',
+  'set',
+  'config',
+]);
+
+const SCOPEABLE_SINGLE_TOOLS: ReadonlySet<string> = new Set([
+  'pytest',
+  'py.test',
+  'jest',
+  'mocha',
+  'ava',
+  'tap',
+  'uvu',
+  'jasmine',
+  'tape',
+  'eslint',
+  'tsc',
+  'prettier',
+  'oxlint',
+  'stylelint',
+  'tslint',
+  'standard',
+  'xo',
+  'svelte-check',
+  'vue-tsc',
+  'mypy',
+  'pyright',
+  'basedpyright',
+  'flake8',
+  'pylint',
+  'pycodestyle',
+  'pyflakes',
+  'pydocstyle',
+  'bandit',
+  'isort',
+  'black',
+  'yapf',
+  'vulture',
+  'radon',
+  'nose2',
+  'nosetests',
+  'behave',
+  'shellcheck',
+  'hadolint',
+  'yamllint',
+  'markdownlint',
+  'rubocop',
+  'rspec',
+  'phpunit',
+  'phpstan',
+  'psalm',
+]);
+
+interface MultiToolSpec {
+  scopeableSubcommands: ReadonlySet<string>;
+  nonScopeableSubcommands?: ReadonlySet<string>;
+  allowBareScoping: boolean;
+}
+
+const SCOPEABLE_MULTI_TOOLS: ReadonlyMap<string, MultiToolSpec> = new Map([
+  [
+    'vitest',
+    {
+      scopeableSubcommands: new Set(['run', 'related', 'typecheck']),
+      nonScopeableSubcommands: new Set(['watch', 'dev', 'bench', 'init', 'list']),
+      allowBareScoping: true,
+    },
+  ],
+  [
+    'ruff',
+    {
+      scopeableSubcommands: new Set(['check', 'format']),
+      allowBareScoping: false,
+    },
+  ],
+  [
+    'tox',
+    {
+      scopeableSubcommands: new Set(['run']),
+      allowBareScoping: true,
+    },
+  ],
+  [
+    'biome',
+    {
+      scopeableSubcommands: new Set(['check', 'lint', 'ci', 'format']),
+      allowBareScoping: false,
+    },
+  ],
+  [
+    'cargo',
+    {
+      scopeableSubcommands: new Set(['test', 'check', 'clippy', 'fmt']),
+      allowBareScoping: false,
+    },
+  ],
+  [
+    'go',
+    {
+      scopeableSubcommands: new Set(['test', 'vet']),
+      allowBareScoping: false,
+    },
+  ],
+  [
+    'dotnet',
+    {
+      scopeableSubcommands: new Set(['test']),
+      allowBareScoping: false,
+    },
+  ],
+  [
+    'deno',
+    {
+      scopeableSubcommands: new Set(['test', 'check', 'lint', 'fmt']),
+      allowBareScoping: false,
+    },
+  ],
+  [
+    'pre-commit',
+    {
+      scopeableSubcommands: new Set(['run']),
+      allowBareScoping: false,
+    },
+  ],
+  [
+    'playwright',
+    {
+      scopeableSubcommands: new Set(['test']),
+      allowBareScoping: false,
+    },
+  ],
+  [
+    'cypress',
+    {
+      scopeableSubcommands: new Set(['run']),
+      allowBareScoping: false,
+    },
+  ],
+  [
+    'golangci-lint',
+    {
+      scopeableSubcommands: new Set(['run']),
+      allowBareScoping: false,
+    },
+  ],
+]);
+
+const SCOPEABLE_PYTHON_SINGLE_MODULES: ReadonlySet<string> = new Set([
+  'pytest',
+  'unittest',
+  'mypy',
+  'flake8',
+  'pylint',
+  'pycodestyle',
+  'pyflakes',
+  'pydocstyle',
+  'bandit',
+  'isort',
+  'black',
+  'yapf',
+  'vulture',
+  'radon',
+  'pyright',
+  'basedpyright',
+  'nose2',
+  'behave',
+  'doctest',
+]);
+
+const SCOPEABLE_PYTHON_MULTI_MODULES: ReadonlyMap<string, MultiToolSpec> =
+  new Map([
+    [
+      'ruff',
+      {
+        scopeableSubcommands: new Set(['check', 'format']),
+        allowBareScoping: false,
+      },
+    ],
+    [
+      'tox',
+      {
+        scopeableSubcommands: new Set(['run']),
+        allowBareScoping: true,
+      },
+    ],
+    [
+      'pre_commit',
+      {
+        scopeableSubcommands: new Set(['run']),
+        allowBareScoping: false,
+      },
+    ],
+    [
+      'pre-commit',
+      {
+        scopeableSubcommands: new Set(['run']),
+        allowBareScoping: false,
+      },
+    ],
+  ]);
+
 const EXACT_MATCH_ONLY_TOOLS: ReadonlySet<string> = new Set([
+  'uvx',
+  'pipx',
+  'pipenv',
+  'bundle',
+  'pnpx',
+  'changeset',
+  'lerna',
+  'turbo',
+  'nx',
+  'mvn',
+  'mvnw',
+  'gradle',
+  'gradlew',
+  'hatch',
   'make',
   'gmake',
   'nmake',
@@ -158,6 +435,60 @@ const PACKAGE_MANAGER_EXACT_SUBCOMMANDS: ReadonlySet<string> = new Set([
   'set',
   'config',
   'patch',
+  'audit',
+  'pack',
+  'version',
+  'store',
+  'env',
+  'setup',
+  'prune',
+  'rebuild',
+  'outdated',
+  'why',
+  'licenses',
+  'import',
+  'dedupe',
+  'fetch',
+  'server',
+  'start',
+  'stop',
+  'restart',
+  'workspaces',
+  'workspace',
+  'plugin',
+  'npm',
+  'stage',
+  'constraints',
+  'cache',
+  'bin',
+  'root',
+  'doctor',
+  'fund',
+  'ls',
+  'list',
+  'self-update',
+  'recursive',
+  'unplug',
+  'explain',
+  'info',
+  'search',
+  'pkg',
+]);
+
+const PACKAGE_MANAGER_SCOPEABLE_SCRIPTS: ReadonlySet<string> = new Set([
+  'test',
+  'test-ci',
+  'test:ci',
+  'test:unit',
+  'test:integration',
+  'lint',
+  'lint:check',
+  'typecheck',
+  'type-check',
+  'check-types',
+  'types',
+  'check',
+  'format:check',
 ]);
 
 const UV_RUN_BOOL_FLAGS: ReadonlySet<string> = new Set([
@@ -330,12 +661,9 @@ const SAFE_STANDALONE_FLAGS: ReadonlySet<string> = new Set([
   '--no-color',
   '--color',
   '--no-colors',
-  '--passWithNoTests',
-  '--pass-with-no-tests',
   '--runInBand',
   '-i',
   '--ci',
-  '--onlyChanged',
   '--findRelatedTests',
   '--exit',
   '--fail-fast',
@@ -349,9 +677,6 @@ const SAFE_STANDALONE_FLAGS: ReadonlySet<string> = new Set([
   '--strict',
   '--strict-markers',
   '--strict-config',
-  '--collect-only',
-  '--co',
-  '--list',
   '--show-error-codes',
   '--no-error-summary',
   '--no-incremental',
@@ -362,13 +687,13 @@ const SAFE_STANDALONE_FLAGS: ReadonlySet<string> = new Set([
   '--noEmit',
   '--skipLibCheck',
   '--check',
+  '--check-only',
   '--diff',
   '--no-fix',
   '--statistics',
   '--show-fixes',
   '--no-show-fixes',
   '--no-warn-ignored',
-  '--no-error-on-unmatched-pattern',
 ]);
 
 const SAFE_PATTERN_VALUE_FLAGS: ReadonlySet<string> = new Set([
@@ -389,7 +714,6 @@ const SAFE_PATH_PATTERN_FLAGS: ReadonlySet<string> = new Set([
 
 const SAFE_NUMERIC_VALUE_FLAGS: ReadonlySet<string> = new Set([
   '--maxfail',
-  '--max-warnings',
   '--timeout',
   '--testTimeout',
   '--test-timeout',
@@ -404,7 +728,6 @@ const SAFE_NUMERIC_VALUE_FLAGS: ReadonlySet<string> = new Set([
 
 const SAFE_RULE_VALUE_FLAGS: ReadonlySet<string> = new Set([
   '--select',
-  '--ignore',
   '--extend-select',
   '--rule',
 ]);
@@ -489,6 +812,7 @@ interface ParsedSignature {
   consumed: number;
   allowScoping: boolean;
   runnerFlags?: string[];
+  nestedBinary?: string;
 }
 
 interface ParsedBaseline {
@@ -499,6 +823,18 @@ interface ParsedBaseline {
   consumed: number;
   allowScoping: boolean;
   runnerFlags: string[];
+  nestedBinary?: string;
+}
+
+interface ResolvedCwdContext {
+  repoRoot: string;
+  realRepoRoot: string;
+}
+
+interface ScopedPathContext {
+  effectiveCwd: string;
+  realEffectiveCwd: string;
+  realRepoRoot: string;
 }
 
 export function tokenizeCommand(command: string): TokenizeResult {
@@ -722,10 +1058,24 @@ function parseUvRunLeadingFlags(
   return { runnerFlags, nextIndex: idx };
 }
 
+function hasBinaryPathQualifier(token: string): boolean {
+  return (
+    token.includes('/') ||
+    token.includes('\\') ||
+    token.includes('~') ||
+    WINDOWS_DRIVE_RE.test(token)
+  );
+}
+
 function parseToolSignature(
   tokens: readonly string[],
   startIndex: number,
-): { parts: string[]; consumed: number; allowScoping: boolean } {
+): {
+  parts: string[];
+  consumed: number;
+  allowScoping: boolean;
+  nestedBinary?: string;
+} {
   const tool = tokens[startIndex];
   if (tool === undefined || tool.startsWith('-')) {
     return { parts: [], consumed: 0, allowScoping: false };
@@ -741,85 +1091,178 @@ function parseToolSignature(
       if (EXACT_MATCH_ONLY_TOOLS.has(mod)) {
         if (isSubcommandToken(sub)) {
           return {
-            parts: ['python', '-m', mod, sub],
+            parts: [tool, '-m', mod, sub],
             consumed: 4,
             allowScoping: false,
+            nestedBinary: tool,
           };
         }
-        return { parts: ['python', '-m', mod], consumed: 3, allowScoping: false };
+        return {
+          parts: [tool, '-m', mod],
+          consumed: 3,
+          allowScoping: false,
+          nestedBinary: tool,
+        };
       }
-      if (mod === 'pre_commit' || mod === 'pre-commit') {
-        if (sub === 'run') {
+      const multiModSpec = SCOPEABLE_PYTHON_MULTI_MODULES.get(mod);
+      if (multiModSpec !== undefined) {
+        if (sub !== undefined && multiModSpec.scopeableSubcommands.has(sub)) {
           return {
-            parts: ['python', '-m', mod, 'run'],
+            parts: [tool, '-m', mod, sub],
             consumed: 4,
             allowScoping: true,
+            nestedBinary: tool,
+          };
+        }
+        if (multiModSpec.allowBareScoping && !isSubcommandToken(sub)) {
+          return {
+            parts: [tool, '-m', mod],
+            consumed: 3,
+            allowScoping: true,
+            nestedBinary: tool,
           };
         }
         if (isSubcommandToken(sub)) {
           return {
-            parts: ['python', '-m', mod, sub],
+            parts: [tool, '-m', mod, sub],
             consumed: 4,
             allowScoping: false,
+            nestedBinary: tool,
           };
         }
-        return { parts: ['python', '-m', mod], consumed: 3, allowScoping: false };
-      }
-      if (MULTI_SUBCOMMAND_TOOLS.has(mod) && isSubcommandToken(sub)) {
         return {
-          parts: ['python', '-m', mod, sub],
-          consumed: 4,
-          allowScoping: true,
+          parts: [tool, '-m', mod],
+          consumed: 3,
+          allowScoping: false,
+          nestedBinary: tool,
         };
       }
-      return { parts: ['python', '-m', mod], consumed: 3, allowScoping: true };
+      if (SCOPEABLE_PYTHON_SINGLE_MODULES.has(mod)) {
+        return {
+          parts: [tool, '-m', mod],
+          consumed: 3,
+          allowScoping: true,
+          nestedBinary: tool,
+        };
+      }
+      return {
+        parts: [tool, '-m', mod],
+        consumed: 3,
+        allowScoping: false,
+        nestedBinary: tool,
+      };
     }
     if (next !== undefined) {
-      return { parts: ['python', next], consumed: 2, allowScoping: false };
+      return {
+        parts: [tool, next],
+        consumed: 2,
+        allowScoping: false,
+        nestedBinary: tool,
+      };
     }
-    return { parts: ['python'], consumed: 1, allowScoping: false };
+    return { parts: [tool], consumed: 1, allowScoping: false, nestedBinary: tool };
   }
 
   if (isNodeBinary(tool) && tokens[startIndex + 1] === '--test') {
-    return { parts: [tool, '--test'], consumed: 2, allowScoping: true };
+    return {
+      parts: [tool, '--test'],
+      consumed: 2,
+      allowScoping: true,
+      nestedBinary: tool,
+    };
   }
 
   if (isInterpreterBinary(tool)) {
     const next = tokens[startIndex + 1];
     if (next !== undefined) {
-      return { parts: [tool, next], consumed: 2, allowScoping: false };
+      return {
+        parts: [tool, next],
+        consumed: 2,
+        allowScoping: false,
+        nestedBinary: tool,
+      };
     }
-    return { parts: [tool], consumed: 1, allowScoping: false };
-  }
-
-  if (toolBase === 'pre-commit') {
-    const sub = tokens[startIndex + 1];
-    if (sub === 'run') {
-      return { parts: [tool, 'run'], consumed: 2, allowScoping: true };
-    }
-    if (isSubcommandToken(sub)) {
-      return { parts: [tool, sub], consumed: 2, allowScoping: false };
-    }
-    return { parts: [tool], consumed: 1, allowScoping: false };
+    return { parts: [tool], consumed: 1, allowScoping: false, nestedBinary: tool };
   }
 
   if (EXACT_MATCH_ONLY_TOOLS.has(toolBase)) {
     const next = tokens[startIndex + 1];
     if (next !== undefined) {
-      return { parts: [tool, next], consumed: 2, allowScoping: false };
+      return {
+        parts: [tool, next],
+        consumed: 2,
+        allowScoping: false,
+        nestedBinary: tool,
+      };
     }
-    return { parts: [tool], consumed: 1, allowScoping: false };
+    return { parts: [tool], consumed: 1, allowScoping: false, nestedBinary: tool };
   }
 
-  if (MULTI_SUBCOMMAND_TOOLS.has(toolBase)) {
+  const multiSpec = SCOPEABLE_MULTI_TOOLS.get(toolBase);
+  if (multiSpec !== undefined) {
     const sub = tokens[startIndex + 1];
-    if (isSubcommandToken(sub)) {
-      return { parts: [tool, sub], consumed: 2, allowScoping: true };
+    if (sub !== undefined && multiSpec.scopeableSubcommands.has(sub)) {
+      return {
+        parts: [tool, sub],
+        consumed: 2,
+        allowScoping: true,
+        nestedBinary: tool,
+      };
     }
-    return { parts: [tool], consumed: 1, allowScoping: true };
+    if (
+      sub !== undefined &&
+      multiSpec.nonScopeableSubcommands !== undefined &&
+      multiSpec.nonScopeableSubcommands.has(sub)
+    ) {
+      return {
+        parts: [tool, sub],
+        consumed: 2,
+        allowScoping: false,
+        nestedBinary: tool,
+      };
+    }
+    if (multiSpec.allowBareScoping) {
+      if (
+        sub !== undefined &&
+        isSubcommandToken(sub) &&
+        multiSpec.nonScopeableSubcommands === undefined
+      ) {
+        return {
+          parts: [tool, sub],
+          consumed: 2,
+          allowScoping: false,
+          nestedBinary: tool,
+        };
+      }
+      return {
+        parts: [tool],
+        consumed: 1,
+        allowScoping: true,
+        nestedBinary: tool,
+      };
+    }
+    if (isSubcommandToken(sub)) {
+      return {
+        parts: [tool, sub],
+        consumed: 2,
+        allowScoping: false,
+        nestedBinary: tool,
+      };
+    }
+    return {
+      parts: [tool],
+      consumed: 1,
+      allowScoping: false,
+      nestedBinary: tool,
+    };
   }
 
-  return { parts: [tool], consumed: 1, allowScoping: true };
+  if (SCOPEABLE_SINGLE_TOOLS.has(toolBase)) {
+    return { parts: [tool], consumed: 1, allowScoping: true, nestedBinary: tool };
+  }
+
+  // Default-deny scoping for unknown/unmodeled tools: exact match only.
+  return { parts: [tool], consumed: 1, allowScoping: false, nestedBinary: tool };
 }
 
 function parseCommandSignature(tokens: readonly string[]): ParsedSignature {
@@ -833,10 +1276,16 @@ function parseCommandSignature(tokens: readonly string[]): ParsedSignature {
     const third = tokens[2];
     if (second === 'run' || second === 'run-script') {
       if (third !== undefined && !third.startsWith('-')) {
+        const thirdBase = posixPath.basename(third.replace(/\\/g, '/'));
+        const allowScoping =
+          !isPythonBinary(third) &&
+          !isInterpreterBinary(third) &&
+          !EXACT_MATCH_ONLY_TOOLS.has(thirdBase) &&
+          !hasBinaryPathQualifier(third);
         return {
           signature: ['npm', 'run', third],
           consumed: 3,
-          allowScoping: true,
+          allowScoping,
         };
       }
       return { signature: ['npm', 'run'], consumed: 2, allowScoping: false };
@@ -854,11 +1303,11 @@ function parseCommandSignature(tokens: readonly string[]): ParsedSignature {
         signature: ['npm', 'exec', ...nested.parts],
         consumed: idx + nested.consumed,
         allowScoping: nested.allowScoping,
+        nestedBinary: nested.nestedBinary,
       };
     }
     if (second !== undefined && !second.startsWith('-')) {
-      const allowScoping = !PACKAGE_MANAGER_EXACT_SUBCOMMANDS.has(second);
-      return { signature: ['npm', second], consumed: 2, allowScoping };
+      return { signature: ['npm', second], consumed: 2, allowScoping: false };
     }
     return { signature: ['npm'], consumed: 1, allowScoping: false };
   }
@@ -872,7 +1321,9 @@ function parseCommandSignature(tokens: readonly string[]): ParsedSignature {
         const allowScoping =
           !isPythonBinary(third) &&
           !isInterpreterBinary(third) &&
-          !EXACT_MATCH_ONLY_TOOLS.has(thirdBase);
+          !EXACT_MATCH_ONLY_TOOLS.has(thirdBase) &&
+          !PACKAGE_MANAGER_EXACT_SUBCOMMANDS.has(third) &&
+          !hasBinaryPathQualifier(third);
         return { signature: [first, third], consumed: 3, allowScoping };
       }
       return { signature: [first, 'run'], consumed: 2, allowScoping: false };
@@ -887,17 +1338,22 @@ function parseCommandSignature(tokens: readonly string[]): ParsedSignature {
         signature: [first, 'exec', ...nested.parts],
         consumed: idx + nested.consumed,
         allowScoping: nested.allowScoping,
+        nestedBinary: nested.nestedBinary,
       };
     }
     if (second !== undefined && !second.startsWith('-')) {
       if (PACKAGE_MANAGER_EXACT_SUBCOMMANDS.has(second)) {
         return { signature: [first, second], consumed: 2, allowScoping: false };
       }
+      if (PACKAGE_MANAGER_SCOPEABLE_SCRIPTS.has(second)) {
+        return { signature: [first, second], consumed: 2, allowScoping: true };
+      }
       const nested = parseToolSignature(tokens, 1);
       return {
         signature: [first, ...nested.parts],
         consumed: 1 + nested.consumed,
         allowScoping: nested.allowScoping,
+        nestedBinary: nested.nestedBinary,
       };
     }
     return { signature: [first], consumed: 1, allowScoping: false };
@@ -913,6 +1369,7 @@ function parseCommandSignature(tokens: readonly string[]): ParsedSignature {
       signature: [first, ...nested.parts],
       consumed: idx + nested.consumed,
       allowScoping: nested.allowScoping,
+      nestedBinary: nested.nestedBinary,
     };
   }
 
@@ -937,11 +1394,11 @@ function parseCommandSignature(tokens: readonly string[]): ParsedSignature {
         consumed: leading.nextIndex + nested.consumed,
         allowScoping: nested.allowScoping,
         runnerFlags: leading.runnerFlags,
+        nestedBinary: nested.nestedBinary,
       };
     }
     if (isSubcommandToken(second)) {
-      const allowScoping = !PACKAGE_MANAGER_EXACT_SUBCOMMANDS.has(second);
-      return { signature: [first, second], consumed: 2, allowScoping };
+      return { signature: [first, second], consumed: 2, allowScoping: false };
     }
     return { signature: [first], consumed: 1, allowScoping: false };
   }
@@ -955,6 +1412,7 @@ function parseCommandSignature(tokens: readonly string[]): ParsedSignature {
         !isPythonBinary(third) &&
         !isInterpreterBinary(third) &&
         !EXACT_MATCH_ONLY_TOOLS.has(thirdBase) &&
+        !PACKAGE_MANAGER_EXACT_SUBCOMMANDS.has(third) &&
         !third.includes('/') &&
         !third.includes('\\') &&
         !third.includes('.');
@@ -970,7 +1428,11 @@ function parseCommandSignature(tokens: readonly string[]): ParsedSignature {
         signature: ['bun', 'x', ...nested.parts],
         consumed: 2 + nested.consumed,
         allowScoping: nested.allowScoping,
+        nestedBinary: nested.nestedBinary,
       };
+    }
+    if (second === 'test') {
+      return { signature: ['bun', 'test'], consumed: 2, allowScoping: true };
     }
     if (second !== undefined && !second.startsWith('-')) {
       if (PACKAGE_MANAGER_EXACT_SUBCOMMANDS.has(second)) {
@@ -981,6 +1443,7 @@ function parseCommandSignature(tokens: readonly string[]): ParsedSignature {
         signature: ['bun', ...nested.parts],
         consumed: 1 + nested.consumed,
         allowScoping: nested.allowScoping,
+        nestedBinary: nested.nestedBinary,
       };
     }
     return { signature: ['bun'], consumed: 1, allowScoping: false };
@@ -991,6 +1454,7 @@ function parseCommandSignature(tokens: readonly string[]): ParsedSignature {
     signature: parsed.parts,
     consumed: parsed.consumed,
     allowScoping: parsed.allowScoping,
+    nestedBinary: parsed.nestedBinary,
   };
 }
 
@@ -1015,9 +1479,35 @@ function isAbsoluteOrHomePath(value: string): boolean {
   );
 }
 
+function isPathInsideDir(parentDir: string, targetPath: string): boolean {
+  const rel = relative(parentDir, targetPath);
+  return (
+    rel === '' ||
+    (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel))
+  );
+}
+
+function stripScopedTargetSuffixes(arg: string): string {
+  let fsTarget = arg;
+  const nodeIdIdx = fsTarget.indexOf('::');
+  if (nodeIdIdx !== -1) {
+    fsTarget = fsTarget.slice(0, nodeIdIdx);
+  }
+  if (fsTarget === '...' || fsTarget === './...') {
+    fsTarget = '.';
+  } else if (fsTarget.endsWith('/...')) {
+    fsTarget = fsTarget.slice(0, -4);
+  }
+  fsTarget = fsTarget.replace(/:\d+(?::\d+)?$/, '');
+  return fsTarget;
+}
+
 function validateSafeRepoRelativePath(value: string): string | null {
   if (value.length === 0) {
     return 'Empty path argument is not allowed';
+  }
+  if (value.startsWith('@')) {
+    return `Argfile or scoped package positional "${value}" is not allowed unless verbatim in CI workflow command`;
   }
   if (hasPathTraversal(value)) {
     return `Path traversal ("..") is not allowed in argument "${value}"`;
@@ -1026,7 +1516,10 @@ function validateSafeRepoRelativePath(value: string): string | null {
     return `Absolute or home path "${value}" is not allowed outside repository`;
   }
   if (URL_SCHEME_RE.test(value)) {
-    return `URL argument "${value}" is not allowed`;
+    return `URL or package specifier "${value}" is not allowed`;
+  }
+  if (REMOTE_HOST_PATH_RE.test(value)) {
+    return `Remote package or host path "${value}" is not allowed`;
   }
   if (value.includes('::')) {
     for (const part of value.split('::')) {
@@ -1035,12 +1528,56 @@ function validateSafeRepoRelativePath(value: string): string | null {
       }
     }
   }
+  const pathPart = value.includes('::')
+    ? value.slice(0, value.indexOf('::'))
+    : value;
+  if (pathPart.includes('@')) {
+    return `Package version specifier "${value}" is not allowed`;
+  }
   if (ENV_ASSIGNMENT_RE.test(value)) {
     return `Inline environment assignment "${value}" is not allowed`;
   }
   if (value.includes('\\')) {
     return `Backslash path "${value}" is not allowed`;
   }
+  if (
+    !value.includes('/') &&
+    !value.includes('.') &&
+    DISALLOWED_BARE_ACTION_WORDS.has(value.toLowerCase())
+  ) {
+    return `Disallowed action positional "${value}" (not present verbatim in CI workflow command)`;
+  }
+  return null;
+}
+
+function validateScopedPositionalOnDisk(
+  arg: string,
+  pathContext: ScopedPathContext,
+): string | null {
+  const fsTarget = stripScopedTargetSuffixes(arg);
+  if (fsTarget.length === 0) {
+    return `Invalid empty scoped target "${arg}"`;
+  }
+
+  const candidatePath = resolve(pathContext.effectiveCwd, fsTarget);
+  if (!isPathInsideDir(pathContext.effectiveCwd, candidatePath)) {
+    return `Scoped target "${arg}" escapes working directory`;
+  }
+
+  let realTarget: string;
+  try {
+    realTarget = realpathSync(candidatePath);
+  } catch {
+    return `Scoped target "${arg}" does not exist inside repository`;
+  }
+
+  if (
+    !isPathInsideDir(pathContext.realEffectiveCwd, realTarget) ||
+    !isPathInsideDir(pathContext.realRepoRoot, realTarget)
+  ) {
+    return `Scoped target "${arg}" resolves outside repository root`;
+  }
+
   return null;
 }
 
@@ -1121,6 +1658,81 @@ function stripLeadingEnvTokens(tokens: readonly string[]): string[] {
   return tokens.slice(idx);
 }
 
+function parseCdTarget(
+  tokens: readonly string[],
+): { ok: true; dir: string } | { ok: false } {
+  if (tokens[0] !== 'cd') {
+    return { ok: false };
+  }
+  let target: string | undefined;
+  if (tokens.length === 2) {
+    target = tokens[1];
+  } else if (tokens.length === 3 && tokens[1] === '--') {
+    target = tokens[2];
+  } else {
+    return { ok: false };
+  }
+
+  if (
+    target === undefined ||
+    target.length === 0 ||
+    target === '-' ||
+    target.startsWith('-') ||
+    hasPathTraversal(target) ||
+    isAbsoluteOrHomePath(target) ||
+    URL_SCHEME_RE.test(target) ||
+    target.includes('\\')
+  ) {
+    return { ok: false };
+  }
+
+  return { ok: true, dir: target };
+}
+
+function combineRelativeWorkingDirectory(
+  currentDir: string | undefined,
+  nextDir: string,
+): string | null {
+  if (
+    hasPathTraversal(nextDir) ||
+    isAbsoluteOrHomePath(nextDir) ||
+    URL_SCHEME_RE.test(nextDir) ||
+    nextDir.includes('\\')
+  ) {
+    return null;
+  }
+
+  if (currentDir !== undefined && currentDir.trim().length > 0) {
+    if (
+      hasPathTraversal(currentDir) ||
+      isAbsoluteOrHomePath(currentDir) ||
+      URL_SCHEME_RE.test(currentDir) ||
+      currentDir.includes('\\')
+    ) {
+      return null;
+    }
+    const joined = posixPath.normalize(posixPath.join(currentDir, nextDir));
+    if (
+      joined === '..' ||
+      joined.startsWith('../') ||
+      isAbsoluteOrHomePath(joined)
+    ) {
+      return null;
+    }
+    return joined;
+  }
+
+  const normalized = posixPath.normalize(nextDir);
+  if (
+    normalized === '..' ||
+    normalized.startsWith('../') ||
+    isAbsoluteOrHomePath(normalized)
+  ) {
+    return null;
+  }
+  return normalized;
+}
+
 function parseWorkflowBaselines(
   workflowCommands: readonly VerifyWorkflowCommand[],
 ): ParsedBaseline[] {
@@ -1128,15 +1740,46 @@ function parseWorkflowBaselines(
 
   for (const wf of workflowCommands) {
     const segments = splitBaselineSegments(wf.command);
+    let currentWorkingDir: string | undefined = wf.workingDirectory;
+
     for (const segment of segments) {
       const tokenized = tokenizeCommand(segment);
       if (!tokenized.ok) {
+        if (/(?:^|\s)(?:cd|pushd|popd)(?:\s|$)/.test(segment)) {
+          break;
+        }
         continue;
       }
       const envFree = stripLeadingEnvTokens(tokenized.tokens);
-      if (envFree.length === 0) {
+      const head = envFree[0];
+      if (head === undefined) {
         continue;
       }
+
+      if (head === 'cd') {
+        const cdParsed = parseCdTarget(envFree);
+        if (!cdParsed.ok) {
+          break;
+        }
+        const combined = combineRelativeWorkingDirectory(
+          currentWorkingDir,
+          cdParsed.dir,
+        );
+        if (combined === null) {
+          break;
+        }
+        currentWorkingDir = combined === '.' ? undefined : combined;
+        continue;
+      }
+
+      if (head === 'pushd' || head === 'popd') {
+        break;
+      }
+
+      if (SHELL_BUILTINS.has(head)) {
+        continue;
+      }
+
       const parsed = parseCommandSignature(envFree);
       if (parsed.signature.length === 0) {
         continue;
@@ -1149,8 +1792,11 @@ function parseWorkflowBaselines(
         allowScoping: parsed.allowScoping,
         runnerFlags: parsed.runnerFlags ?? [],
       };
-      if (wf.workingDirectory !== undefined) {
-        baseline.workingDirectory = wf.workingDirectory;
+      if (parsed.nestedBinary !== undefined) {
+        baseline.nestedBinary = parsed.nestedBinary;
+      }
+      if (currentWorkingDir !== undefined) {
+        baseline.workingDirectory = currentWorkingDir;
       }
       baselines.push(baseline);
     }
@@ -1234,10 +1880,6 @@ function validateRunnerFlags(
   candidateRunnerFlags: readonly string[],
   baselineRunnerFlags: readonly string[],
 ): string | null {
-  if (candidateRunnerFlags.length === 0) {
-    return null;
-  }
-
   const baselineBoolSet = new Set<string>();
   const baselineEqSet = new Set<string>();
   const baselinePairSet = new Set<string>();
@@ -1262,6 +1904,10 @@ function validateRunnerFlags(
     baselineBoolSet.add(tok);
   }
 
+  const seenBoolSet = new Set<string>();
+  const seenEqSet = new Set<string>();
+  const seenPairSet = new Set<string>();
+
   for (let i = 0; i < candidateRunnerFlags.length; i += 1) {
     const tok = candidateRunnerFlags[i];
     if (tok === undefined || tok === '--') {
@@ -1271,6 +1917,7 @@ function validateRunnerFlags(
       if (!baselineEqSet.has(tok)) {
         return `Disallowed runner flag "${tok}" (not present verbatim in CI workflow command)`;
       }
+      seenEqSet.add(tok);
       continue;
     }
     if (UV_RUN_VALUE_FLAGS.has(tok)) {
@@ -1278,13 +1925,35 @@ function validateRunnerFlags(
       if (val === undefined || !baselinePairSet.has(`${tok}\0${val}`)) {
         return `Disallowed runner flag "${tok}" value (not present verbatim in CI workflow command)`;
       }
+      seenPairSet.add(`${tok}\0${val}`);
       i += 1;
       continue;
     }
-    if (baselineBoolSet.has(tok) || UV_RUN_SAFE_EXTRA_BOOL_FLAGS.has(tok)) {
+    if (baselineBoolSet.has(tok)) {
+      seenBoolSet.add(tok);
+      continue;
+    }
+    if (UV_RUN_SAFE_EXTRA_BOOL_FLAGS.has(tok)) {
       continue;
     }
     return `Disallowed runner flag "${tok}" (not present in CI workflow command)`;
+  }
+
+  for (const reqFlag of baselineBoolSet) {
+    if (!seenBoolSet.has(reqFlag)) {
+      return `Candidate command dropped required CI baseline runner flag "${reqFlag}"`;
+    }
+  }
+  for (const reqEq of baselineEqSet) {
+    if (!seenEqSet.has(reqEq)) {
+      return `Candidate command dropped required CI baseline runner flag "${reqEq}"`;
+    }
+  }
+  for (const reqPair of baselinePairSet) {
+    if (!seenPairSet.has(reqPair)) {
+      const [flagName, flagVal] = reqPair.split('\0');
+      return `Candidate command dropped required CI baseline runner flag "${flagName ?? ''} ${flagVal ?? ''}"`;
+    }
   }
 
   return null;
@@ -1293,8 +1962,10 @@ function validateRunnerFlags(
 function validateScopedArguments(
   candidateExtraArgs: readonly string[],
   baselineExtraArgs: readonly string[],
+  pathContext: ScopedPathContext | null,
 ): string | null {
   const baselineStandaloneFlags = new Set<string>();
+  const baselineDangerousStandaloneFlags = new Set<string>();
   const baselineEqFlags = new Set<string>();
   const baselinePositionals = new Set<string>();
   const baselinePairSet = new Set<string>();
@@ -1325,13 +1996,19 @@ function validateScopedArguments(
         i += 1;
         continue;
       }
-      if (!DANGEROUS_FLAGS.has(tok)) {
+      if (DANGEROUS_FLAGS.has(tok)) {
+        baselineDangerousStandaloneFlags.add(tok);
+      } else {
         baselineStandaloneFlags.add(tok);
       }
       continue;
     }
     baselinePositionals.add(tok);
   }
+
+  const seenStandaloneFlags = new Set<string>();
+  const seenEqFlags = new Set<string>();
+  const seenPairs = new Set<string>();
 
   for (let i = 0; i < candidateExtraArgs.length; i += 1) {
     const arg = candidateExtraArgs[i];
@@ -1348,6 +2025,7 @@ function validateScopedArguments(
     if (arg.startsWith('-')) {
       const next = candidateExtraArgs[i + 1];
       if (next !== undefined && baselinePairSet.has(`${arg}\0${next}`)) {
+        seenPairs.add(`${arg}\0${next}`);
         i += 1;
         continue;
       }
@@ -1357,6 +2035,7 @@ function validateScopedArguments(
         const flagName = arg.slice(0, eqIdx);
         const flagVal = arg.slice(eqIdx + 1);
         if (baselineEqFlags.has(arg)) {
+          seenEqFlags.add(arg);
           continue;
         }
         if (DANGEROUS_FLAGS.has(flagName)) {
@@ -1374,6 +2053,7 @@ function validateScopedArguments(
 
       // Bare flag (no '=')
       if (baselineStandaloneFlags.has(arg) && !DANGEROUS_FLAGS.has(arg)) {
+        seenStandaloneFlags.add(arg);
         continue;
       }
       if (DANGEROUS_FLAGS.has(arg)) {
@@ -1409,7 +2089,7 @@ function validateScopedArguments(
     }
 
     // Positional argument: allow if verbatim in baseline (still checked for path traversal globally)
-    // or if it is a safe repo-relative path / test target.
+    // or if it is a safe repo-relative path / test target (and exists within cwd when cwd exists).
     if (baselinePositionals.has(arg)) {
       continue;
     }
@@ -1418,30 +2098,149 @@ function validateScopedArguments(
     if (pathError !== null) {
       return pathError;
     }
+
+    if (pathContext !== null) {
+      const diskError = validateScopedPositionalOnDisk(arg, pathContext);
+      if (diskError !== null) {
+        return diskError;
+      }
+    }
+  }
+
+  for (const reqFlag of baselineStandaloneFlags) {
+    if (!seenStandaloneFlags.has(reqFlag)) {
+      return `Candidate command dropped required CI baseline flag "${reqFlag}"`;
+    }
+  }
+  for (const reqFlag of baselineDangerousStandaloneFlags) {
+    return `Candidate command dropped required CI baseline flag "${reqFlag}"`;
+  }
+  for (const reqEq of baselineEqFlags) {
+    if (!seenEqFlags.has(reqEq)) {
+      return `Candidate command dropped required CI baseline flag "${reqEq}"`;
+    }
+  }
+  for (const reqPair of baselinePairSet) {
+    if (!seenPairs.has(reqPair)) {
+      const [flagName, flagVal] = reqPair.split('\0');
+      return `Candidate command dropped required CI baseline flag "${flagName ?? ''} ${flagVal ?? ''}"`;
+    }
   }
 
   return null;
 }
 
+function resolveCwdContext(options?: CheckAllowlistOptions): ResolvedCwdContext | null {
+  const rawCwd = options?.cwd;
+  if (rawCwd === undefined || rawCwd.trim().length === 0) {
+    return null;
+  }
+  const repoRoot = resolve(rawCwd);
+  if (!existsSync(repoRoot)) {
+    return null;
+  }
+  try {
+    const realRepoRoot = realpathSync(repoRoot);
+    if (!statSync(realRepoRoot).isDirectory()) {
+      return null;
+    }
+    return { repoRoot, realRepoRoot };
+  } catch {
+    return null;
+  }
+}
+
+function resolveBaselinePathContext(
+  cwdContext: ResolvedCwdContext | null,
+  workingDirectory: string | undefined,
+):
+  | { ok: true; pathContext: ScopedPathContext | null }
+  | { ok: false; reason: string } {
+  if (
+    workingDirectory !== undefined &&
+    (hasPathTraversal(workingDirectory) ||
+      isAbsoluteOrHomePath(workingDirectory) ||
+      URL_SCHEME_RE.test(workingDirectory) ||
+      workingDirectory.includes('\\'))
+  ) {
+    return {
+      ok: false,
+      reason: `Unsafe workflow workingDirectory "${workingDirectory}"`,
+    };
+  }
+
+  if (cwdContext === null) {
+    return { ok: true, pathContext: null };
+  }
+
+  if (workingDirectory === undefined || workingDirectory.trim().length === 0) {
+    return {
+      ok: true,
+      pathContext: {
+        effectiveCwd: cwdContext.repoRoot,
+        realEffectiveCwd: cwdContext.realRepoRoot,
+        realRepoRoot: cwdContext.realRepoRoot,
+      },
+    };
+  }
+
+  const effectiveCwd = resolve(cwdContext.repoRoot, workingDirectory);
+  if (!isPathInsideDir(cwdContext.repoRoot, effectiveCwd)) {
+    return {
+      ok: false,
+      reason: `Unsafe workflow workingDirectory "${workingDirectory}": escapes repository root`,
+    };
+  }
+
+  let realEffectiveCwd: string;
+  try {
+    realEffectiveCwd = realpathSync(effectiveCwd);
+    if (!statSync(realEffectiveCwd).isDirectory()) {
+      return {
+        ok: false,
+        reason: `Unsafe workflow workingDirectory "${workingDirectory}": target is not a directory`,
+      };
+    }
+  } catch {
+    return {
+      ok: false,
+      reason: `Unsafe workflow workingDirectory "${workingDirectory}": directory does not exist inside repository`,
+    };
+  }
+
+  if (!isPathInsideDir(cwdContext.realRepoRoot, realEffectiveCwd)) {
+    return {
+      ok: false,
+      reason: `Unsafe workflow workingDirectory "${workingDirectory}": symlink resolves outside repository root`,
+    };
+  }
+
+  return {
+    ok: true,
+    pathContext: {
+      effectiveCwd,
+      realEffectiveCwd,
+      realRepoRoot: cwdContext.realRepoRoot,
+    },
+  };
+}
+
 function buildAllowedDecision(
   candidateTokens: readonly string[],
   baseline: ParsedBaseline,
+  cwdContext: ResolvedCwdContext | null,
 ): AllowlistDecision {
   const binary = candidateTokens[0];
   if (binary === undefined) {
     return { allowed: false, reason: 'Command is empty' };
   }
 
-  if (
-    baseline.workingDirectory !== undefined &&
-    (hasPathTraversal(baseline.workingDirectory) ||
-      isAbsoluteOrHomePath(baseline.workingDirectory) ||
-      URL_SCHEME_RE.test(baseline.workingDirectory))
-  ) {
-    return {
-      allowed: false,
-      reason: `Unsafe workflow workingDirectory "${baseline.workingDirectory}"`,
-    };
+  const pathCheck = resolveBaselinePathContext(
+    cwdContext,
+    baseline.workingDirectory,
+  );
+  if (!pathCheck.ok) {
+    return { allowed: false, reason: pathCheck.reason };
   }
 
   const decision: AllowlistDecision = {
@@ -1459,6 +2258,7 @@ function buildAllowedDecision(
 export function checkCommandAllowlist(
   candidate: string,
   workflowCommands: readonly VerifyWorkflowCommand[],
+  options?: CheckAllowlistOptions,
 ): AllowlistDecision {
   if (workflowCommands.length === 0) {
     return {
@@ -1485,6 +2285,13 @@ export function checkCommandAllowlist(
     };
   }
 
+  if (SHELL_BUILTINS.has(binary)) {
+    return {
+      allowed: false,
+      reason: `Disallowed shell builtin "${binary}" in command`,
+    };
+  }
+
   for (const token of candidateTokens) {
     if (hasPathTraversal(token)) {
       return {
@@ -1502,15 +2309,40 @@ export function checkCommandAllowlist(
     };
   }
 
+  const cwdContext = resolveCwdContext(options);
+
+  if (
+    hasBinaryPathQualifier(binary) &&
+    !baselines.some((baseline) => baseline.tokens[0] === binary)
+  ) {
+    return {
+      allowed: false,
+      reason: `Path-qualified binary "${binary}" is not present verbatim in any CI workflow command`,
+    };
+  }
+
   // 1. Exact token match against any env-free baseline workflow command
   for (const baseline of baselines) {
     if (arraysEqual(candidateTokens, baseline.tokens)) {
-      return buildAllowedDecision(candidateTokens, baseline);
+      return buildAllowedDecision(candidateTokens, baseline, cwdContext);
     }
   }
 
   // 2. Same normalized tool + subcommand signature with safe scoping arguments
   const candidateParsed = parseCommandSignature(candidateTokens);
+  if (
+    candidateParsed.nestedBinary !== undefined &&
+    hasBinaryPathQualifier(candidateParsed.nestedBinary) &&
+    !baselines.some(
+      (baseline) => baseline.nestedBinary === candidateParsed.nestedBinary,
+    )
+  ) {
+    return {
+      allowed: false,
+      reason: `Path-qualified binary "${candidateParsed.nestedBinary}" is not present verbatim in any CI workflow command`,
+    };
+  }
+
   if (!candidateParsed.allowScoping) {
     return {
       allowed: false,
@@ -1531,6 +2363,16 @@ export function checkCommandAllowlist(
     ) {
       continue;
     }
+    if (hasBinaryPathQualifier(binary) && baseline.tokens[0] !== binary) {
+      continue;
+    }
+    if (
+      candidateParsed.nestedBinary !== undefined &&
+      hasBinaryPathQualifier(candidateParsed.nestedBinary) &&
+      baseline.nestedBinary !== candidateParsed.nestedBinary
+    ) {
+      continue;
+    }
     matchedAnySignature = true;
 
     const runnerFlagError = validateRunnerFlags(
@@ -1544,13 +2386,25 @@ export function checkCommandAllowlist(
       continue;
     }
 
+    const baselinePathCheck = resolveBaselinePathContext(
+      cwdContext,
+      baseline.workingDirectory,
+    );
+    if (!baselinePathCheck.ok) {
+      if (firstValidationError === null) {
+        firstValidationError = baselinePathCheck.reason;
+      }
+      continue;
+    }
+
     const baselineExtraArgs = baseline.tokens.slice(baseline.consumed);
     const validationError = validateScopedArguments(
       candidateExtraArgs,
       baselineExtraArgs,
+      baselinePathCheck.pathContext,
     );
     if (validationError === null) {
-      return buildAllowedDecision(candidateTokens, baseline);
+      return buildAllowedDecision(candidateTokens, baseline, cwdContext);
     }
     if (firstValidationError === null) {
       firstValidationError = validationError;
