@@ -15,7 +15,7 @@ metadata:
 Preflight is a standalone, open-source CLI that helps coding agents (Claude Code, Codex, Cursor, OpenClaw, Antigravity, and others) catch likely CI failures locally before code is committed or pushed.
 
 Preflight runs a four-stage pipeline:
-1. **Gather**: collects your git diff against the base ref, `.github/workflows/*.yml` commands, and 1-hop affected tests within a strict token budget.
+1. **Gather**: collects your git diff against the base ref, `.github/workflows/*.yml` commands, and affected tests (via the static import graph) within a strict token budget.
 2. **Think**: calls any OpenAI-compatible LLM (defaulting to local Ollama at `http://localhost:11434/v1` with `$0` cost and no API key required) to predict likely failures and select scoped CI commands.
 3. **Verify**: executes only commands allowlisted by repository CI workflows using `shell: false`, refusing any non-CI command without executing it.
 4. **Telemetry**: reports provider, token usage, throughput (`tok/s`), and per-stage wall-clock timing on every run.
