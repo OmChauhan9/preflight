@@ -643,16 +643,13 @@ const SAFE_STANDALONE_FLAGS: ReadonlySet<string> = new Set([
   '--no-watch',
   '--bail',
   '-b',
-  '-x',
   '--exitfirst',
   '-q',
   '-qq',
   '--quiet',
-  '-v',
   '-vv',
   '-vvv',
   '--verbose',
-  '-s',
   '--silent',
   '--no-header',
   '--no-summary',
@@ -683,9 +680,7 @@ const SAFE_STANDALONE_FLAGS: ReadonlySet<string> = new Set([
   '--pretty',
   '--no-pretty',
   '--no-color-output',
-  '--ignore-missing-imports',
   '--noEmit',
-  '--skipLibCheck',
   '--check',
   '--check-only',
   '--diff',
@@ -704,8 +699,9 @@ const SAFE_PATTERN_VALUE_FLAGS: ReadonlySet<string> = new Set([
   '--grep',
   '--fgrep',
   '-k',
-  '-m',
 ]);
+
+const PYTEST_ONLY_PATTERN_VALUE_FLAGS: ReadonlySet<string> = new Set(['-m']);
 
 const SAFE_PATH_PATTERN_FLAGS: ReadonlySet<string> = new Set([
   '--testPathPattern',
@@ -727,7 +723,6 @@ const SAFE_NUMERIC_VALUE_FLAGS: ReadonlySet<string> = new Set([
 ]);
 
 const SAFE_RULE_VALUE_FLAGS: ReadonlySet<string> = new Set([
-  '--select',
   '--extend-select',
   '--rule',
 ]);
@@ -1817,7 +1812,54 @@ function arraysEqual(a: readonly string[], b: readonly string[]): boolean {
   return true;
 }
 
-function validateFlagValue(flagName: string, value: string): string | null {
+function isPytestToolToken(token: string | undefined): boolean {
+  if (token === undefined) {
+    return false;
+  }
+  const base = posixPath.basename(token.replace(/\\/g, '/'));
+  return base === 'pytest' || base === 'py.test';
+}
+
+function isPytestSignature(signature: readonly string[]): boolean {
+  if (signature.length === 1 && isPytestToolToken(signature[0])) {
+    return true;
+  }
+  if (
+    signature.length === 3 &&
+    signature[0] !== undefined &&
+    isPythonBinary(signature[0]) &&
+    signature[1] === '-m' &&
+    signature[2] === 'pytest'
+  ) {
+    return true;
+  }
+  if (
+    (signature[0] === 'uv' ||
+      signature[0] === 'poetry' ||
+      signature[0] === 'pdm') &&
+    signature[1] === 'run'
+  ) {
+    return isPytestSignature(signature.slice(2));
+  }
+  return false;
+}
+
+function isToolAllowedPatternValueFlag(
+  flagName: string,
+  signature: readonly string[],
+): boolean {
+  return (
+    SAFE_PATTERN_VALUE_FLAGS.has(flagName) ||
+    (PYTEST_ONLY_PATTERN_VALUE_FLAGS.has(flagName) &&
+      isPytestSignature(signature))
+  );
+}
+
+function validateFlagValue(
+  flagName: string,
+  value: string,
+  signature: readonly string[],
+): string | null {
   if (value.length === 0) {
     return `Flag "${flagName}" requires a non-empty value`;
   }
@@ -1825,7 +1867,7 @@ function validateFlagValue(flagName: string, value: string): string | null {
     return `Path traversal ("..") is not allowed in value for "${flagName}"`;
   }
 
-  if (SAFE_PATTERN_VALUE_FLAGS.has(flagName)) {
+  if (isToolAllowedPatternValueFlag(flagName, signature)) {
     return null;
   }
 
@@ -1838,13 +1880,6 @@ function validateFlagValue(flagName: string, value: string): string | null {
       return `Flag "${flagName}" requires a non-negative integer value (got "${value}")`;
     }
     return null;
-  }
-
-  if (flagName === '-n') {
-    if (value === 'auto' || NON_NEGATIVE_INT_RE.test(value)) {
-      return null;
-    }
-    return `Flag "-n" requires "auto" or a non-negative integer value (got "${value}")`;
   }
 
   if (SAFE_RULE_VALUE_FLAGS.has(flagName)) {
@@ -1865,14 +1900,16 @@ function validateFlagValue(flagName: string, value: string): string | null {
   return `Disallowed flag "${flagName}"`;
 }
 
-function isSafeValueFlag(flagName: string): boolean {
+function isSafeValueFlag(
+  flagName: string,
+  signature: readonly string[],
+): boolean {
   return (
-    SAFE_PATTERN_VALUE_FLAGS.has(flagName) ||
+    isToolAllowedPatternValueFlag(flagName, signature) ||
     SAFE_PATH_PATTERN_FLAGS.has(flagName) ||
     SAFE_NUMERIC_VALUE_FLAGS.has(flagName) ||
     SAFE_RULE_VALUE_FLAGS.has(flagName) ||
-    SAFE_ENUM_VALUE_FLAGS.has(flagName) ||
-    flagName === '-n'
+    SAFE_ENUM_VALUE_FLAGS.has(flagName)
   );
 }
 
@@ -1959,47 +1996,114 @@ function validateRunnerFlags(
   return null;
 }
 
+interface BaselineFlagEntry {
+  flag: string;
+  afterDoubleDash: boolean;
+}
+
+interface BaselinePairEntry {
+  flag: string;
+  value: string;
+  afterDoubleDash: boolean;
+}
+
+function scopedFlagKey(afterDoubleDash: boolean, flag: string): string {
+  return `${afterDoubleDash ? '1' : '0'}\0${flag}`;
+}
+
+function scopedPairKey(
+  afterDoubleDash: boolean,
+  flag: string,
+  value: string,
+): string {
+  return `${afterDoubleDash ? '1' : '0'}\0${flag}\0${value}`;
+}
+
+function formatRequiredFlagPositionNote(
+  afterDoubleDash: boolean,
+  candidateSawDoubleDash: boolean,
+): string {
+  if (afterDoubleDash) {
+    return ' (must appear after "--")';
+  }
+  if (candidateSawDoubleDash) {
+    return ' (must appear before "--")';
+  }
+  return '';
+}
+
 function validateScopedArguments(
   candidateExtraArgs: readonly string[],
   baselineExtraArgs: readonly string[],
+  signature: readonly string[],
   pathContext: ScopedPathContext | null,
 ): string | null {
-  const baselineStandaloneFlags = new Set<string>();
-  const baselineDangerousStandaloneFlags = new Set<string>();
-  const baselineEqFlags = new Set<string>();
+  const baselineStandaloneFlags = new Map<string, BaselineFlagEntry>();
+  const baselineDangerousStandaloneFlags = new Map<string, BaselineFlagEntry>();
+  const baselineEqFlags = new Map<string, BaselineFlagEntry>();
   const baselinePositionals = new Set<string>();
-  const baselinePairSet = new Set<string>();
+  const baselinePairs = new Map<string, BaselinePairEntry>();
 
+  let baselineAfterDoubleDash = false;
   for (let i = 0; i < baselineExtraArgs.length; i += 1) {
     const tok = baselineExtraArgs[i];
-    if (tok === undefined || tok === '--') {
+    if (tok === undefined) {
+      continue;
+    }
+    if (tok === '--') {
+      baselineAfterDoubleDash = true;
       continue;
     }
     if (tok.startsWith('-')) {
       if (tok.includes('=')) {
-        baselineEqFlags.add(tok);
+        baselineEqFlags.set(scopedFlagKey(baselineAfterDoubleDash, tok), {
+          flag: tok,
+          afterDoubleDash: baselineAfterDoubleDash,
+        });
         continue;
       }
       const next = baselineExtraArgs[i + 1];
       const isKnownBooleanOnly =
         SAFE_STANDALONE_FLAGS.has(tok) &&
-        (!isSafeValueFlag(tok) ||
+        (!isSafeValueFlag(tok, signature) ||
           next === undefined ||
           next.startsWith('-') ||
-          validateFlagValue(tok, next) !== null);
+          validateFlagValue(tok, next, signature) !== null);
       if (isKnownBooleanOnly) {
-        baselineStandaloneFlags.add(tok);
+        baselineStandaloneFlags.set(
+          scopedFlagKey(baselineAfterDoubleDash, tok),
+          {
+            flag: tok,
+            afterDoubleDash: baselineAfterDoubleDash,
+          },
+        );
         continue;
       }
       if (next !== undefined && !next.startsWith('-')) {
-        baselinePairSet.add(`${tok}\0${next}`);
+        baselinePairs.set(scopedPairKey(baselineAfterDoubleDash, tok, next), {
+          flag: tok,
+          value: next,
+          afterDoubleDash: baselineAfterDoubleDash,
+        });
         i += 1;
         continue;
       }
       if (DANGEROUS_FLAGS.has(tok)) {
-        baselineDangerousStandaloneFlags.add(tok);
+        baselineDangerousStandaloneFlags.set(
+          scopedFlagKey(baselineAfterDoubleDash, tok),
+          {
+            flag: tok,
+            afterDoubleDash: baselineAfterDoubleDash,
+          },
+        );
       } else {
-        baselineStandaloneFlags.add(tok);
+        baselineStandaloneFlags.set(
+          scopedFlagKey(baselineAfterDoubleDash, tok),
+          {
+            flag: tok,
+            afterDoubleDash: baselineAfterDoubleDash,
+          },
+        );
       }
       continue;
     }
@@ -2010,6 +2114,7 @@ function validateScopedArguments(
   const seenEqFlags = new Set<string>();
   const seenPairs = new Set<string>();
 
+  let candidateAfterDoubleDash = false;
   for (let i = 0; i < candidateExtraArgs.length; i += 1) {
     const arg = candidateExtraArgs[i];
     if (arg === undefined) {
@@ -2019,32 +2124,37 @@ function validateScopedArguments(
       return 'Empty argument is not allowed';
     }
     if (arg === '--') {
+      candidateAfterDoubleDash = true;
       continue;
     }
 
     if (arg.startsWith('-')) {
       const next = candidateExtraArgs[i + 1];
-      if (next !== undefined && baselinePairSet.has(`${arg}\0${next}`)) {
-        seenPairs.add(`${arg}\0${next}`);
-        i += 1;
-        continue;
+      if (next !== undefined && next !== '--') {
+        const pairKey = scopedPairKey(candidateAfterDoubleDash, arg, next);
+        if (baselinePairs.has(pairKey)) {
+          seenPairs.add(pairKey);
+          i += 1;
+          continue;
+        }
       }
 
       const eqIdx = arg.indexOf('=');
       if (eqIdx !== -1) {
         const flagName = arg.slice(0, eqIdx);
         const flagVal = arg.slice(eqIdx + 1);
-        if (baselineEqFlags.has(arg)) {
-          seenEqFlags.add(arg);
+        const eqKey = scopedFlagKey(candidateAfterDoubleDash, arg);
+        if (baselineEqFlags.has(eqKey)) {
+          seenEqFlags.add(eqKey);
           continue;
         }
         if (DANGEROUS_FLAGS.has(flagName)) {
           return `Disallowed dangerous flag "${flagName}" (not present verbatim in CI workflow command)`;
         }
-        if (!isSafeValueFlag(flagName)) {
+        if (!isSafeValueFlag(flagName, signature)) {
           return `Disallowed flag "${flagName}" (not present in CI workflow command or scoping allowlist)`;
         }
-        const valueError = validateFlagValue(flagName, flagVal);
+        const valueError = validateFlagValue(flagName, flagVal, signature);
         if (valueError !== null) {
           return valueError;
         }
@@ -2052,8 +2162,12 @@ function validateScopedArguments(
       }
 
       // Bare flag (no '=')
-      if (baselineStandaloneFlags.has(arg) && !DANGEROUS_FLAGS.has(arg)) {
-        seenStandaloneFlags.add(arg);
+      const standaloneKey = scopedFlagKey(candidateAfterDoubleDash, arg);
+      if (
+        baselineStandaloneFlags.has(standaloneKey) &&
+        !DANGEROUS_FLAGS.has(arg)
+      ) {
+        seenStandaloneFlags.add(standaloneKey);
         continue;
       }
       if (DANGEROUS_FLAGS.has(arg)) {
@@ -2063,21 +2177,21 @@ function validateScopedArguments(
       if (SAFE_STANDALONE_FLAGS.has(arg)) {
         // Handle flags that can be either boolean or value-taking (e.g. --bail, --pretty, --color)
         if (
-          isSafeValueFlag(arg) &&
+          isSafeValueFlag(arg, signature) &&
           next !== undefined &&
           !next.startsWith('-') &&
-          validateFlagValue(arg, next) === null
+          validateFlagValue(arg, next, signature) === null
         ) {
           i += 1;
         }
         continue;
       }
 
-      if (isSafeValueFlag(arg)) {
+      if (isSafeValueFlag(arg, signature)) {
         if (next === undefined || next.startsWith('-')) {
           return `Flag "${arg}" requires a value`;
         }
-        const valueError = validateFlagValue(arg, next);
+        const valueError = validateFlagValue(arg, next, signature);
         if (valueError !== null) {
           return valueError;
         }
@@ -2107,23 +2221,38 @@ function validateScopedArguments(
     }
   }
 
-  for (const reqFlag of baselineStandaloneFlags) {
-    if (!seenStandaloneFlags.has(reqFlag)) {
-      return `Candidate command dropped required CI baseline flag "${reqFlag}"`;
+  for (const [key, entry] of baselineStandaloneFlags) {
+    if (!seenStandaloneFlags.has(key)) {
+      const positionNote = formatRequiredFlagPositionNote(
+        entry.afterDoubleDash,
+        candidateAfterDoubleDash,
+      );
+      return `Candidate command dropped required CI baseline flag "${entry.flag}"${positionNote}`;
     }
   }
-  for (const reqFlag of baselineDangerousStandaloneFlags) {
-    return `Candidate command dropped required CI baseline flag "${reqFlag}"`;
+  for (const entry of baselineDangerousStandaloneFlags.values()) {
+    const positionNote = formatRequiredFlagPositionNote(
+      entry.afterDoubleDash,
+      candidateAfterDoubleDash,
+    );
+    return `Candidate command dropped required CI baseline flag "${entry.flag}"${positionNote}`;
   }
-  for (const reqEq of baselineEqFlags) {
-    if (!seenEqFlags.has(reqEq)) {
-      return `Candidate command dropped required CI baseline flag "${reqEq}"`;
+  for (const [key, entry] of baselineEqFlags) {
+    if (!seenEqFlags.has(key)) {
+      const positionNote = formatRequiredFlagPositionNote(
+        entry.afterDoubleDash,
+        candidateAfterDoubleDash,
+      );
+      return `Candidate command dropped required CI baseline flag "${entry.flag}"${positionNote}`;
     }
   }
-  for (const reqPair of baselinePairSet) {
-    if (!seenPairs.has(reqPair)) {
-      const [flagName, flagVal] = reqPair.split('\0');
-      return `Candidate command dropped required CI baseline flag "${flagName ?? ''} ${flagVal ?? ''}"`;
+  for (const [key, entry] of baselinePairs) {
+    if (!seenPairs.has(key)) {
+      const positionNote = formatRequiredFlagPositionNote(
+        entry.afterDoubleDash,
+        candidateAfterDoubleDash,
+      );
+      return `Candidate command dropped required CI baseline flag "${entry.flag} ${entry.value}"${positionNote}`;
     }
   }
 
@@ -2401,6 +2530,7 @@ export function checkCommandAllowlist(
     const validationError = validateScopedArguments(
       candidateExtraArgs,
       baselineExtraArgs,
+      baseline.signature,
       baselinePathCheck.pathContext,
     );
     if (validationError === null) {

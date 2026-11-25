@@ -87,7 +87,7 @@ Because `skills/preflight/SKILL.md` uses standard frontmatter and invokes the st
 
 ## 3. Universal CLI `--json` Contract & Direct Shell Fallback
 
-Per [ADR-004](../DECISIONS.md#adr-004-generic-agent-skill-skillspreflightskillmd--optional-git-pre-push-hook), any coding agent — even one without `SKILL.md` discovery — can invoke Preflight directly via its shell tool (falling back from `preflight` to `node dist/cli.js` or `npx --no-install preflight` when not globally linked):
+Per [ADR-004](../DECISIONS.md#adr-004-generic-agent-skill-skillspreflightskillmd--optional-git-pre-push-hook), any coding agent — even one without `SKILL.md` discovery — can invoke Preflight directly via its shell tool (falling back in order from `preflight` to `npx --no-install preflight`, or `node dist/cli.js` inside a local Preflight repository checkout, when not globally linked):
 
 ```bash
 # Pre-push verification

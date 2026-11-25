@@ -194,9 +194,9 @@ describe('checkCommandAllowlist', () => {
       ['tests/test_auth.py', '-k', 'login'],
     ],
     [
-      'pytest tests/test_auth.py::TestAuth::test_login -x -q --maxfail=1',
+      'pytest tests/test_auth.py::TestAuth::test_login --exitfirst -q --maxfail=1',
       'pytest',
-      ['tests/test_auth.py::TestAuth::test_login', '-x', '-q', '--maxfail=1'],
+      ['tests/test_auth.py::TestAuth::test_login', '--exitfirst', '-q', '--maxfail=1'],
     ],
     ['npm test -- test/foo.test.ts', 'npm', ['test', '--', 'test/foo.test.ts']],
     ['ruff check src/app.py', 'ruff', ['check', 'src/app.py']],
@@ -586,6 +586,149 @@ describe('checkCommandAllowlist', () => {
     for (const candidate of weakeningCandidates) {
       expect(checkCommandAllowlist(candidate, baseWorkflows).allowed).toBe(false);
     }
+  });
+
+  it('[M2-Fix-1] refuses -v version-exit-0 bypass and weakening/tool-mismatched flags while keeping pytest -m and --verbose', () => {
+    const workflows = [
+      wf('node --test'),
+      wf('npm test'),
+      wf('npm run lint'),
+      wf('tsc --noEmit'),
+      wf('npx eslint . --max-warnings 0'),
+      wf('npx jest'),
+      wf('npx prettier --check .'),
+      wf('go test ./...'),
+      wf('go vet ./...'),
+      wf('mypy src'),
+      wf('python -m mypy src'),
+      wf('uv run mypy src'),
+      wf('ruff check .'),
+      wf('rubocop'),
+      wf('rspec'),
+      wf('yamllint .'),
+      wf('pytest'),
+      wf('python -m pytest'),
+      wf('uv run pytest'),
+    ];
+
+    const refusedCandidates = [
+      // -v prints version and exits 0 without running checks
+      'node --test -v',
+      'npm run lint -v',
+      'tsc --noEmit -v',
+      'npx eslint . --max-warnings 0 -v',
+      'npx jest -v',
+      'npx prettier --check . -v',
+      'npm test -v',
+      'rubocop -v',
+      'rspec -v',
+      'yamllint . -v',
+      // 6 weakening / tool-mismatched flag nits
+      'go test -n=1',
+      'go test -n 1',
+      'go vet -n=1',
+      'go vet -n 1',
+      'tsc --noEmit --skipLibCheck',
+      'mypy --ignore-missing-imports src',
+      'ruff check --select E9 .',
+      'ruff check --select=E9 .',
+      'rubocop -x',
+      'rubocop -s',
+      'mypy -m json',
+      'mypy -m=json',
+      'python -m mypy -m json',
+      'uv run mypy -m json',
+    ];
+
+    for (const candidate of refusedCandidates) {
+      expect(checkCommandAllowlist(candidate, workflows).allowed).toBe(false);
+    }
+
+    // Legitimate flags remain allowed
+    expect(
+      checkCommandAllowlist('pytest -m unit tests/test_a.py', workflows).allowed,
+    ).toBe(true);
+    expect(
+      checkCommandAllowlist('python -m pytest -m unit tests/test_a.py', workflows)
+        .allowed,
+    ).toBe(true);
+    expect(
+      checkCommandAllowlist('uv run pytest -m unit tests/test_a.py', workflows)
+        .allowed,
+    ).toBe(true);
+    expect(
+      checkCommandAllowlist('pytest --verbose tests/test_a.py', workflows).allowed,
+    ).toBe(true);
+    // Verbatim -v present in the baseline still matches as a baseline flag
+    expect(
+      checkCommandAllowlist('pytest -v tests/test_a.py', [wf('pytest -v')])
+        .allowed,
+    ).toBe(true);
+  });
+
+  it('[M2-Fix-2] preserves -- separator placement for required baseline flags while allowing legitimate scoped -- arguments', () => {
+    const coverageWorkflow = [wf('npm test -- --coverage')];
+    expect(
+      checkCommandAllowlist('npm test --coverage', coverageWorkflow).allowed,
+    ).toBe(false);
+    expect(
+      checkCommandAllowlist('npm test --coverage -- test/a.test.ts', coverageWorkflow)
+        .allowed,
+    ).toBe(false);
+    expect(
+      checkCommandAllowlist('npm test -- --coverage test/a.test.ts', coverageWorkflow)
+        .allowed,
+    ).toBe(true);
+
+    const lintMaxWarnWorkflow = [wf('npm run lint -- --max-warnings 0')];
+    expect(
+      checkCommandAllowlist('npm run lint --max-warnings 0', lintMaxWarnWorkflow)
+        .allowed,
+    ).toBe(false);
+    expect(
+      checkCommandAllowlist(
+        'npm run lint -- --max-warnings 0 src/index.ts',
+        lintMaxWarnWorkflow,
+      ).allowed,
+    ).toBe(true);
+
+    const lintMaxWarnEqWorkflow = [wf('npm run lint -- --max-warnings=0')];
+    expect(
+      checkCommandAllowlist('npm run lint --max-warnings=0', lintMaxWarnEqWorkflow)
+        .allowed,
+    ).toBe(false);
+    expect(
+      checkCommandAllowlist(
+        'npm run lint -- --max-warnings=0 src/index.ts',
+        lintMaxWarnEqWorkflow,
+      ).allowed,
+    ).toBe(true);
+
+    // Safe standalone flags after `--` in baseline cannot be hoisted before `--` (and vice versa)
+    expect(
+      checkCommandAllowlist('npm test --strict', [wf('npm test -- --strict')])
+        .allowed,
+    ).toBe(false);
+    expect(
+      checkCommandAllowlist('npm test -- --strict test/a.test.ts', [
+        wf('npm test -- --strict'),
+      ]).allowed,
+    ).toBe(true);
+    expect(
+      checkCommandAllowlist('npm test -- --strict', [wf('npm test --strict')])
+        .allowed,
+    ).toBe(false);
+    expect(
+      checkCommandAllowlist('npx eslint . -- --max-warnings 0', [
+        wf('npx eslint . --max-warnings 0'),
+      ]).allowed,
+    ).toBe(false);
+
+    // Baseline without `--` still allows legitimate scoped `npm test -- test/foo.test.ts`
+    expect(
+      checkCommandAllowlist('npm test -- test/foo.test.ts', [wf('npm test')])
+        .allowed,
+    ).toBe(true);
   });
 
   it('[R1-M3] refuses shell builtins and carries safe workingDirectory for cd X && cmd while failing closed on unsafe cd', () => {

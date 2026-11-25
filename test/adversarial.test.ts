@@ -1299,6 +1299,90 @@ describe('Scenario 8: Phase 5 security hardening regressions', () => {
     }
   });
 
+  it('[R1-M2-Tail] blocks -v version-exit-0 bypass, weakening/tool-mismatched flags, and -- separator flag smuggling', () => {
+    const workflows: VerifyWorkflowCommand[] = [
+      wf('node --test'),
+      wf('npm test'),
+      wf('npm run lint'),
+      wf('tsc --noEmit'),
+      wf('npx eslint . --max-warnings 0'),
+      wf('npx jest'),
+      wf('npx prettier --check .'),
+      wf('go test ./...'),
+      wf('go vet ./...'),
+      wf('mypy src'),
+      wf('ruff check .'),
+      wf('rubocop'),
+      wf('rspec'),
+      wf('yamllint .'),
+      wf('pytest'),
+    ];
+
+    const attacks = [
+      // Version-exit-0 bypasses via -v
+      'node --test -v',
+      'npm test -v',
+      'npm run lint -v',
+      'tsc --noEmit -v',
+      'npx eslint . --max-warnings 0 -v',
+      'npx jest -v',
+      'npx prettier --check . -v',
+      'rubocop -v',
+      'rspec -v',
+      'yamllint . -v',
+      // Dry-run / weakening / autocorrect / stdlib-module-swap flags
+      'go test -n=1',
+      'go vet -n=1',
+      'tsc --noEmit --skipLibCheck',
+      'mypy --ignore-missing-imports src',
+      'ruff check --select E9 .',
+      'rubocop -x',
+      'rubocop -s',
+      'mypy -m json',
+    ];
+
+    for (const attack of attacks) {
+      expect(checkCommandAllowlist(attack, workflows).allowed).toBe(false);
+    }
+
+    // Hoisting required after-`--` flags before `--` so npm swallows them MUST be refused
+    const doubleDashWorkflows: VerifyWorkflowCommand[] = [
+      wf('npm test -- --coverage'),
+      wf('npm run lint -- --max-warnings 0'),
+    ];
+    expect(
+      checkCommandAllowlist('npm test --coverage', doubleDashWorkflows).allowed,
+    ).toBe(false);
+    expect(
+      checkCommandAllowlist('npm run lint --max-warnings 0', doubleDashWorkflows)
+        .allowed,
+    ).toBe(false);
+    expect(
+      checkCommandAllowlist('npm test -- --strict', [wf('npm test --strict')])
+        .allowed,
+    ).toBe(false);
+
+    // Legitimate scoped invocations remain allowed
+    expect(
+      checkCommandAllowlist(
+        'npm test -- --coverage test/a.test.ts',
+        doubleDashWorkflows,
+      ).allowed,
+    ).toBe(true);
+    expect(
+      checkCommandAllowlist(
+        'npm run lint -- --max-warnings 0 src/index.ts',
+        doubleDashWorkflows,
+      ).allowed,
+    ).toBe(true);
+    expect(
+      checkCommandAllowlist('pytest -m unit tests/test_a.py', workflows).allowed,
+    ).toBe(true);
+    expect(
+      checkCommandAllowlist('npm test -- test/foo.test.ts', workflows).allowed,
+    ).toBe(true);
+  });
+
   it('[R1-M3] blocks shell builtins and symlinked cd escape while scoping safe cd web && npm test to repo/web', async () => {
     const repoDir = createTempDir('preflight-adv-p5-m3-');
     const outsideDir = createTempDir('preflight-adv-p5-m3-out-');
