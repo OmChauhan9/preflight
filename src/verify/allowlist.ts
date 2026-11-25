@@ -647,13 +647,10 @@ const SAFE_STANDALONE_FLAGS: ReadonlySet<string> = new Set([
   '-q',
   '-qq',
   '--quiet',
-  '-vv',
-  '-vvv',
   '--verbose',
   '--silent',
   '--no-header',
   '--no-summary',
-  '--no-cov',
   '--no-cache',
   '--no-color',
   '--color',
@@ -683,7 +680,6 @@ const SAFE_STANDALONE_FLAGS: ReadonlySet<string> = new Set([
   '--noEmit',
   '--check',
   '--check-only',
-  '--diff',
   '--no-fix',
   '--statistics',
   '--show-fixes',
@@ -1844,10 +1840,25 @@ function isPytestSignature(signature: readonly string[]): boolean {
   return false;
 }
 
+function isTscToolToken(token: string | undefined): boolean {
+  if (token === undefined) {
+    return false;
+  }
+  const base = posixPath.basename(token.replace(/\\/g, '/'));
+  return base === 'tsc' || base === 'vue-tsc';
+}
+
+function isTscSignature(signature: readonly string[]): boolean {
+  return signature.some((token) => isTscToolToken(token));
+}
+
 function isToolAllowedPatternValueFlag(
   flagName: string,
   signature: readonly string[],
 ): boolean {
+  if (flagName === '-t' && isTscSignature(signature)) {
+    return false;
+  }
   return (
     SAFE_PATTERN_VALUE_FLAGS.has(flagName) ||
     (PYTEST_ONLY_PATTERN_VALUE_FLAGS.has(flagName) &&
@@ -1998,35 +2009,38 @@ function validateRunnerFlags(
 
 interface BaselineFlagEntry {
   flag: string;
-  afterDoubleDash: boolean;
+  doubleDashDepth: number;
 }
 
 interface BaselinePairEntry {
   flag: string;
   value: string;
-  afterDoubleDash: boolean;
+  doubleDashDepth: number;
 }
 
-function scopedFlagKey(afterDoubleDash: boolean, flag: string): string {
-  return `${afterDoubleDash ? '1' : '0'}\0${flag}`;
+function scopedFlagKey(doubleDashDepth: number, flag: string): string {
+  return `${doubleDashDepth}\0${flag}`;
 }
 
 function scopedPairKey(
-  afterDoubleDash: boolean,
+  doubleDashDepth: number,
   flag: string,
   value: string,
 ): string {
-  return `${afterDoubleDash ? '1' : '0'}\0${flag}\0${value}`;
+  return `${doubleDashDepth}\0${flag}\0${value}`;
 }
 
 function formatRequiredFlagPositionNote(
-  afterDoubleDash: boolean,
-  candidateSawDoubleDash: boolean,
+  requiredDepth: number,
+  candidateDoubleDashCount: number,
 ): string {
-  if (afterDoubleDash) {
+  if (requiredDepth === 1) {
     return ' (must appear after "--")';
   }
-  if (candidateSawDoubleDash) {
+  if (requiredDepth > 1) {
+    return ` (must appear at "--" depth ${requiredDepth})`;
+  }
+  if (candidateDoubleDashCount > 0) {
     return ' (must appear before "--")';
   }
   return '';
@@ -2044,21 +2058,21 @@ function validateScopedArguments(
   const baselinePositionals = new Set<string>();
   const baselinePairs = new Map<string, BaselinePairEntry>();
 
-  let baselineAfterDoubleDash = false;
+  let baselineDoubleDashDepth = 0;
   for (let i = 0; i < baselineExtraArgs.length; i += 1) {
     const tok = baselineExtraArgs[i];
     if (tok === undefined) {
       continue;
     }
     if (tok === '--') {
-      baselineAfterDoubleDash = true;
+      baselineDoubleDashDepth += 1;
       continue;
     }
     if (tok.startsWith('-')) {
       if (tok.includes('=')) {
-        baselineEqFlags.set(scopedFlagKey(baselineAfterDoubleDash, tok), {
+        baselineEqFlags.set(scopedFlagKey(baselineDoubleDashDepth, tok), {
           flag: tok,
-          afterDoubleDash: baselineAfterDoubleDash,
+          doubleDashDepth: baselineDoubleDashDepth,
         });
         continue;
       }
@@ -2071,37 +2085,37 @@ function validateScopedArguments(
           validateFlagValue(tok, next, signature) !== null);
       if (isKnownBooleanOnly) {
         baselineStandaloneFlags.set(
-          scopedFlagKey(baselineAfterDoubleDash, tok),
+          scopedFlagKey(baselineDoubleDashDepth, tok),
           {
             flag: tok,
-            afterDoubleDash: baselineAfterDoubleDash,
+            doubleDashDepth: baselineDoubleDashDepth,
           },
         );
         continue;
       }
       if (next !== undefined && !next.startsWith('-')) {
-        baselinePairs.set(scopedPairKey(baselineAfterDoubleDash, tok, next), {
+        baselinePairs.set(scopedPairKey(baselineDoubleDashDepth, tok, next), {
           flag: tok,
           value: next,
-          afterDoubleDash: baselineAfterDoubleDash,
+          doubleDashDepth: baselineDoubleDashDepth,
         });
         i += 1;
         continue;
       }
       if (DANGEROUS_FLAGS.has(tok)) {
         baselineDangerousStandaloneFlags.set(
-          scopedFlagKey(baselineAfterDoubleDash, tok),
+          scopedFlagKey(baselineDoubleDashDepth, tok),
           {
             flag: tok,
-            afterDoubleDash: baselineAfterDoubleDash,
+            doubleDashDepth: baselineDoubleDashDepth,
           },
         );
       } else {
         baselineStandaloneFlags.set(
-          scopedFlagKey(baselineAfterDoubleDash, tok),
+          scopedFlagKey(baselineDoubleDashDepth, tok),
           {
             flag: tok,
-            afterDoubleDash: baselineAfterDoubleDash,
+            doubleDashDepth: baselineDoubleDashDepth,
           },
         );
       }
@@ -2110,11 +2124,13 @@ function validateScopedArguments(
     baselinePositionals.add(tok);
   }
 
+  const maxAllowedDoubleDashCount = Math.max(baselineDoubleDashDepth, 1);
+
   const seenStandaloneFlags = new Set<string>();
   const seenEqFlags = new Set<string>();
   const seenPairs = new Set<string>();
 
-  let candidateAfterDoubleDash = false;
+  let candidateDoubleDashDepth = 0;
   for (let i = 0; i < candidateExtraArgs.length; i += 1) {
     const arg = candidateExtraArgs[i];
     if (arg === undefined) {
@@ -2124,14 +2140,17 @@ function validateScopedArguments(
       return 'Empty argument is not allowed';
     }
     if (arg === '--') {
-      candidateAfterDoubleDash = true;
+      candidateDoubleDashDepth += 1;
+      if (candidateDoubleDashDepth > maxAllowedDoubleDashCount) {
+        return `Disallowed extra "--" separator (maximum allowed for this CI baseline is ${maxAllowedDoubleDashCount})`;
+      }
       continue;
     }
 
     if (arg.startsWith('-')) {
       const next = candidateExtraArgs[i + 1];
       if (next !== undefined && next !== '--') {
-        const pairKey = scopedPairKey(candidateAfterDoubleDash, arg, next);
+        const pairKey = scopedPairKey(candidateDoubleDashDepth, arg, next);
         if (baselinePairs.has(pairKey)) {
           seenPairs.add(pairKey);
           i += 1;
@@ -2143,7 +2162,7 @@ function validateScopedArguments(
       if (eqIdx !== -1) {
         const flagName = arg.slice(0, eqIdx);
         const flagVal = arg.slice(eqIdx + 1);
-        const eqKey = scopedFlagKey(candidateAfterDoubleDash, arg);
+        const eqKey = scopedFlagKey(candidateDoubleDashDepth, arg);
         if (baselineEqFlags.has(eqKey)) {
           seenEqFlags.add(eqKey);
           continue;
@@ -2162,7 +2181,7 @@ function validateScopedArguments(
       }
 
       // Bare flag (no '=')
-      const standaloneKey = scopedFlagKey(candidateAfterDoubleDash, arg);
+      const standaloneKey = scopedFlagKey(candidateDoubleDashDepth, arg);
       if (
         baselineStandaloneFlags.has(standaloneKey) &&
         !DANGEROUS_FLAGS.has(arg)
@@ -2224,24 +2243,24 @@ function validateScopedArguments(
   for (const [key, entry] of baselineStandaloneFlags) {
     if (!seenStandaloneFlags.has(key)) {
       const positionNote = formatRequiredFlagPositionNote(
-        entry.afterDoubleDash,
-        candidateAfterDoubleDash,
+        entry.doubleDashDepth,
+        candidateDoubleDashDepth,
       );
       return `Candidate command dropped required CI baseline flag "${entry.flag}"${positionNote}`;
     }
   }
   for (const entry of baselineDangerousStandaloneFlags.values()) {
     const positionNote = formatRequiredFlagPositionNote(
-      entry.afterDoubleDash,
-      candidateAfterDoubleDash,
+      entry.doubleDashDepth,
+      candidateDoubleDashDepth,
     );
     return `Candidate command dropped required CI baseline flag "${entry.flag}"${positionNote}`;
   }
   for (const [key, entry] of baselineEqFlags) {
     if (!seenEqFlags.has(key)) {
       const positionNote = formatRequiredFlagPositionNote(
-        entry.afterDoubleDash,
-        candidateAfterDoubleDash,
+        entry.doubleDashDepth,
+        candidateDoubleDashDepth,
       );
       return `Candidate command dropped required CI baseline flag "${entry.flag}"${positionNote}`;
     }
@@ -2249,8 +2268,8 @@ function validateScopedArguments(
   for (const [key, entry] of baselinePairs) {
     if (!seenPairs.has(key)) {
       const positionNote = formatRequiredFlagPositionNote(
-        entry.afterDoubleDash,
-        candidateAfterDoubleDash,
+        entry.doubleDashDepth,
+        candidateDoubleDashDepth,
       );
       return `Candidate command dropped required CI baseline flag "${entry.flag} ${entry.value}"${positionNote}`;
     }

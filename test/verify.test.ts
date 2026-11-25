@@ -731,6 +731,129 @@ describe('checkCommandAllowlist', () => {
     ).toBe(true);
   });
 
+  it('[M2-Final-1] refuses -vv/-vvv version bypasses, --no-cov, --diff, and tsc -t while keeping --verbose and verbatim baseline flags', () => {
+    const workflows = [
+      wf('npx eslint . --max-warnings 0'),
+      wf('yamllint .'),
+      wf('rubocop'),
+      wf('rspec'),
+      wf('pytest'),
+      wf('python -m pytest'),
+      wf('ruff check .'),
+      wf('tsc --noEmit'),
+      wf('npx tsc --noEmit'),
+      wf('pnpm exec tsc --noEmit'),
+      wf('vue-tsc --noEmit'),
+      wf('npx vitest run'),
+    ];
+
+    const refusedCandidates = [
+      'npx eslint . --max-warnings 0 -vv',
+      'npx eslint . --max-warnings 0 -vvv',
+      'yamllint . -vv',
+      'rubocop -vv',
+      'rspec -vvv',
+      'pytest --no-cov',
+      'python -m pytest --no-cov',
+      'ruff check --diff .',
+      'tsc --noEmit -t es5',
+      'tsc --noEmit -t=es5',
+      'npx tsc --noEmit -t es5',
+      'pnpm exec tsc --noEmit -t es5',
+      'vue-tsc --noEmit -t es5',
+    ];
+
+    for (const candidate of refusedCandidates) {
+      expect(checkCommandAllowlist(candidate, workflows).allowed).toBe(false);
+    }
+
+    // Legitimate flags remain allowed
+    expect(
+      checkCommandAllowlist('pytest --verbose tests/test_a.py', workflows).allowed,
+    ).toBe(true);
+    expect(
+      checkCommandAllowlist('npx vitest run -t "login"', workflows).allowed,
+    ).toBe(true);
+    // Verbatim baseline flags remain allowed while altered values are refused
+    expect(
+      checkCommandAllowlist('pytest -vv tests/test_a.py', [wf('pytest -vv')])
+        .allowed,
+    ).toBe(true);
+    expect(
+      checkCommandAllowlist('tsc --noEmit -t es2022 src/index.ts', [
+        wf('tsc --noEmit -t es2022'),
+      ]).allowed,
+    ).toBe(true);
+    expect(
+      checkCommandAllowlist('tsc --noEmit -t es5', [
+        wf('tsc --noEmit -t es2022'),
+      ]).allowed,
+    ).toBe(false);
+  });
+
+  it('[M2-Final-2] enforces exact -- depth for baseline flags and blocks repeated -- smuggling', () => {
+    const npmCoverageWorkflow = [wf('npm test -- --coverage')];
+    expect(
+      checkCommandAllowlist('npm test -- -- --coverage', npmCoverageWorkflow)
+        .allowed,
+    ).toBe(false);
+    expect(
+      checkCommandAllowlist(
+        'npm test -- --coverage -- test/a.test.ts',
+        npmCoverageWorkflow,
+      ).allowed,
+    ).toBe(false);
+    expect(
+      checkCommandAllowlist(
+        'npm test -- --coverage test/a.test.ts',
+        npmCoverageWorkflow,
+      ).allowed,
+    ).toBe(true);
+
+    const vitestCoverageWorkflow = [wf('npx vitest run --coverage')];
+    expect(
+      checkCommandAllowlist(
+        'npx vitest run -- --coverage',
+        vitestCoverageWorkflow,
+      ).allowed,
+    ).toBe(false);
+    expect(
+      checkCommandAllowlist(
+        'npx vitest run --coverage test/a.test.ts',
+        vitestCoverageWorkflow,
+      ).allowed,
+    ).toBe(true);
+
+    // Baseline without `--` allows a single scoping `--` but refuses repeated `--`
+    expect(
+      checkCommandAllowlist('npm test -- test/foo.test.ts', [wf('npm test')])
+        .allowed,
+    ).toBe(true);
+    expect(
+      checkCommandAllowlist('npm test -- -- test/foo.test.ts', [wf('npm test')])
+        .allowed,
+    ).toBe(false);
+
+    // Depth-2 baseline flags require exact depth 2 and refuse depth 1 or depth 3
+    const nestedWorkflow = [wf('npm run outer -- -- --strict')];
+    expect(
+      checkCommandAllowlist(
+        'npm run outer -- --strict -- test/a.test.ts',
+        nestedWorkflow,
+      ).allowed,
+    ).toBe(false);
+    expect(
+      checkCommandAllowlist('npm run outer -- -- -- --strict', nestedWorkflow)
+        .allowed,
+    ).toBe(false);
+    expect(
+      checkCommandAllowlist(
+        'npm run outer -- -- --strict test/a.test.ts',
+        nestedWorkflow,
+      ).allowed,
+    ).toBe(true);
+  });
+
   it('[R1-M3] refuses shell builtins and carries safe workingDirectory for cd X && cmd while failing closed on unsafe cd', () => {
     const builtins = [
       'cd web',
