@@ -148,8 +148,10 @@ function stripJsComments(source: string): string {
   let out = '';
   let inSingle = false;
   let inDouble = false;
+  let inTemplate = false;
   let inBlockComment = false;
   let inLineComment = false;
+  const templateExprDepths: number[] = [];
 
   for (let i = 0; i < source.length; i += 1) {
     const ch = source[i] ?? '';
@@ -198,6 +200,26 @@ function stripJsComments(source: string): string {
       continue;
     }
 
+    if (inTemplate) {
+      if (ch === '\\' && next.length > 0) {
+        out += ch + next;
+        i += 1;
+        continue;
+      }
+      if (ch === '$' && next === '{') {
+        inTemplate = false;
+        templateExprDepths.push(0);
+        out += '${';
+        i += 1;
+        continue;
+      }
+      out += ch;
+      if (ch === '`') {
+        inTemplate = false;
+      }
+      continue;
+    }
+
     if (ch === '/' && next === '/') {
       inLineComment = true;
       out += '  ';
@@ -216,6 +238,23 @@ function stripJsComments(source: string): string {
       inSingle = true;
     } else if (ch === '"') {
       inDouble = true;
+    } else if (ch === '`') {
+      inTemplate = true;
+    } else if (templateExprDepths.length > 0) {
+      const topIdx = templateExprDepths.length - 1;
+      const topDepth = templateExprDepths[topIdx];
+      if (topDepth !== undefined) {
+        if (ch === '{') {
+          templateExprDepths[topIdx] = topDepth + 1;
+        } else if (ch === '}') {
+          if (topDepth === 0) {
+            templateExprDepths.pop();
+            inTemplate = true;
+          } else {
+            templateExprDepths[topIdx] = topDepth - 1;
+          }
+        }
+      }
     }
 
     out += ch;

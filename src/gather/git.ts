@@ -248,14 +248,14 @@ export function resolveBaseRef(
       );
     }
 
-    const verifyArgs = ['rev-parse', '--verify', trimmed];
+    const verifyArgs = ['rev-parse', '--verify', `${trimmed}^{commit}`];
     try {
       gitExec(verifyArgs, cwd);
       return trimmed;
     } catch (error: unknown) {
       const detail = extractGitErrorMessage(error);
       throw new GatherGitError(
-        `Invalid base ref "${trimmed}": ref does not exist${detail ? ` (${detail})` : ''}`,
+        `Invalid base ref "${trimmed}": ref does not exist or is not a commit${detail ? ` (${detail})` : ''}`,
         { args: verifyArgs, cwd, cause: error },
       );
     }
@@ -263,7 +263,8 @@ export function resolveBaseRef(
 
   for (const candidate of DEFAULT_BASE_REF_CANDIDATES) {
     try {
-      gitExec(['rev-parse', '--verify', candidate], cwd);
+      const candidateSpec = gitExec === execGit ? `${candidate}^{commit}` : candidate;
+      gitExec(['rev-parse', '--verify', candidateSpec], cwd);
       return candidate;
     } catch {
       // Try next candidate ref
@@ -371,7 +372,7 @@ export function collectGitDiff(options: CollectGitDiffOptions): GitDiffResult {
   const baseRef = resolveBaseRef(options.cwd, options.baseRef, gitExec);
 
   let trackedDiff: string;
-  const diffArgs = ['diff', baseRef];
+  const diffArgs = ['diff', baseRef, '--'];
   try {
     trackedDiff = gitExec(diffArgs, options.cwd);
   } catch (error: unknown) {
@@ -388,7 +389,7 @@ export function collectGitDiff(options: CollectGitDiffOptions): GitDiffResult {
   const changedFileSet = new Set<string>();
 
   try {
-    const nameOnlyOutput = gitExec(['diff', '--name-only', baseRef], options.cwd);
+    const nameOnlyOutput = gitExec(['diff', '--name-only', baseRef, '--'], options.cwd);
     const trimmedNameOnly = nameOnlyOutput.trimStart();
     if (trimmedNameOnly.length > 0 && !trimmedNameOnly.startsWith('diff --git ')) {
       for (const file of parseLineList(nameOnlyOutput)) {

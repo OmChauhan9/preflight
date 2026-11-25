@@ -49,6 +49,7 @@ function resolveExecutionCwd(
   if (
     hasPathTraversal(workingDirectory) ||
     isAbsolute(workingDirectory) ||
+    /^[A-Za-z]:/.test(workingDirectory) ||
     workingDirectory.startsWith('~') ||
     workingDirectory.startsWith('\\')
   ) {
@@ -83,10 +84,18 @@ export async function runVerify(
 
   const results: CommandCheckResult[] = [];
   const refusedCommands: RefusedCommand[] = [];
+  const seenCommands = new Set<string>();
+  const seenExecutions = new Set<string>();
   let executedCount = 0;
   let hasFailure = false;
 
   for (const command of candidateCommands) {
+    const normalizedCommand = command.trim();
+    if (seenCommands.has(normalizedCommand)) {
+      continue;
+    }
+    seenCommands.add(normalizedCommand);
+
     const decision = checkCommandAllowlist(command, workflowCommands);
 
     if (!decision.allowed) {
@@ -117,6 +126,16 @@ export async function runVerify(
       });
       continue;
     }
+
+    const executionKey = JSON.stringify([
+      cwdResolution.cwd,
+      decision.binary,
+      ...decision.args,
+    ]);
+    if (seenExecutions.has(executionKey)) {
+      continue;
+    }
+    seenExecutions.add(executionKey);
 
     const execResult = await spawnCommand(decision.binary, decision.args, {
       cwd: cwdResolution.cwd,
