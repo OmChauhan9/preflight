@@ -128,24 +128,26 @@ Safe, deterministic local command execution:
    - A command is **allowed** only if it uses the **same tool and subcommand** as a workflow command (e.g., `vitest run`, `mocha`, `jest`, `pytest`, `eslint`, `ruff check`, `tsc --noEmit`, `npm test`, `npm run <script>`) and only narrows scope via safe file paths or test-name filters inside the repository.
    - Any command containing arbitrary shell chaining (`;`, `&&`, `||`, `|`, `` ` ``, `$()`), redirection (`>`, `<`), path traversal (`..`), or binaries/subcommands absent from `.github/workflows/*.yml` is **refused and logged**.
 2. **Timeouts & Resource Limits:**
-   - Each command runs with a configurable per-command timeout (e.g., 60s default) and bounded stdout/stderr capture.
+   - Each command runs with `shell: false`, a configurable per-command timeout (60s default via `--timeout`), and bounded stdout/stderr tail capture (32 KiB per stream by default).
 3. **Exit-Code-Only Verdict:**
-   - Each executed command records `command`, `status` (`passed` | `failed` | `timed_out` | `refused`), `exit_code`, `duration_ms`, and a failure output excerpt.
+   - Each evaluated command in `verify.results[]` records `command`, `status` (`passed` | `failed` | `timed_out` | `refused`), `exitCode` (`number | null`), `durationMs`, `stdout`, `stderr`, plus optional `matchedWorkflowCommand` or `refusalReason` (and refused entries are mirrored in `verify.refusedCommands[]`).
    - The overall Verify result is determined **solely from the exit codes of executed commands**:
-     - Exit code `0` across all executed checks → `"these checks passed"`
-     - Any non-zero exit code or timeout → `"these checks failed"`
+     - Exit code `0` across all executed checks → `verdict: "passed"` (`"these checks passed"`)
+     - Any non-zero exit code or timeout → `verdict: "failed"` (`"these checks failed"`)
+     - Zero allowlisted checks executed (e.g., no changes or no workflow commands) → `verdict: "no_checks_run"` (`"no allowlisted checks were executed"`)
    - Preflight never reports `"CI will pass"`.
 
 ### Stage 4: Explain (`preflight explain <CI log URL or file>`)
 
 Fast post-failure diagnosis and verified patch suggestion:
 
-1. **Input:** Accepts either a GitHub Actions run/job URL (fetched via `gh` CLI / GitHub API) or a path to a local CI log file, combined with the local `git diff` and `.github/workflows/*.yml`.
-2. **Diagnosis Call:** Sends the trimmed failure log excerpt + diff to the configured LLM via `OpenAICompatibleClient` (single call, `<= 20K` input tokens, plain-text JSON output + 1 retry on schema error) to produce:
+1. **Input:** Accepts either a GitHub Actions run/job URL (fetched via `gh` CLI / GitHub API) or a path to a local CI log file, combined with the local `git diff` and `.github/workflows/*.yml` (falling back gracefully to log-only context when not in a git repository).
+2. **Diagnosis Call:** Sends the trimmed failure log excerpt + diff to the configured LLM via `OpenAICompatibleClient` (single call, `<= 20K` input tokens, plain-text JSON output + at most 1 retry on schema error) to produce:
    - `root_cause`: exact file, symbol/line, and explanation of why the diff triggered the CI failure.
-   - `failing_command`: the workflow command that failed.
+   - `failing_command`: the workflow-derived command that failed, or `null` if none can be identified.
    - `suggested_patch`: minimal unified diff or concrete code change to resolve the failure.
-3. **Local Verification (When Possible):** When the local repo state and allowlisted `failing_command` permit, re-runs the failing command to confirm the failure and/or verify whether the suggested patch resolves it.
+   - `explanation`: concise explanation of why the failure occurred and how the suggested patch fixes it.
+3. **Local Verification (When Possible):** Unless `--no-verify` is passed, re-runs the allowlisted `failing_command` locally when available to confirm the failure and report real exit-code verification status.
 
 ---
 
@@ -153,22 +155,36 @@ Fast post-failure diagnosis and verified patch suggestion:
 
 ### 3.1 Standalone CLI (`preflight`)
 
-Built on TypeScript + Node 22 (`>=22`). *(Implementation status note: In the current v0.1.0 Phase 0 scaffold (`src/cli.ts`), `preflight check`, `preflight explain`, and `preflight bench` parse flags and print `not implemented` with exit code `0`; full stage execution lands in Phases 1–2.)*
+Built on TypeScript + Node 22 (`>=22`). All four CLI commands are implemented in `src/cli.ts`:
 
 | Command | Description |
 | :--- | :--- |
-| `preflight check [options]` | Run the `Gather → Think → Verify` pipeline on the current working tree / branch diff and print check verdicts + Speed/Telemetry panel *(currently a `not implemented` stub exiting `0` in v0.1.0)*. |
-| `preflight explain <log-url-or-file> [options]` | Diagnose a failed CI run log against the repository diff, output root cause + suggested patch, and verify locally when possible *(currently a `not implemented` stub exiting `0` in v0.1.0)*. |
-| `preflight bench [options]` | Run the benchmark evaluation suite across `bench/cases/*.json` and output accuracy + latency metrics *(currently a `not implemented` stub exiting `0` in v0.1.0)*. |
-| `preflight init --hook` *(Planned in Phase 1)* | Install an optional local `.git/hooks/pre-push` hook that runs `preflight check` before pushing commits to a remote. |
+| `preflight check [options]` | Run the `Gather → Think → Verify` pipeline on the current working tree / branch diff and output exit-code-backed check verdicts + Speed & Telemetry panel. Exits `0` (`passed` or `no_checks_run`) or `1` (`failed` / error). |
+| `preflight explain <log-url-or-file> [options]` | Diagnose a failed CI run log (local file or GitHub Actions run/job URL) against the repository diff, output root cause + failing command + suggested patch + explanation, and verify locally unless `--no-verify` is passed. |
+| `preflight init --hook [--force] [--json]` | Install or update an optional local `.git/hooks/pre-push` hook that runs `preflight check` before pushing commits to a remote (refusing to overwrite an existing custom hook unless `--force` is provided). |
+| `preflight bench [options]` | Run the sequential (`concurrency = 1`) curated benchmark triage suite across `bench/cases/*.json` and emit recall, false-alarm, allowlist-refusal, and latency metrics (optionally exporting `summary.md` and `results.json` via `--out`). |
 
-**Global CLI Flags:**
+**CLI Flags (`src/cli.ts`):**
 
-- `--provider <ollama|groq|gemini|openrouter|openai|cerebras|custom>`: Select the OpenAI-compatible inference provider preset (defaults to `ollama` or `PREFLIGHT_PROVIDER`).
-- `--model <model-id>`: Override the model identifier for the selected provider (or set `PREFLIGHT_MODEL`).
-- `--json`: Emit machine-readable JSON output containing stage results, command exit codes, Think payload, and Speed/Telemetry metrics.
-- `--think`: Opt in to enable model reasoning during the Think / Explain call.
-- `--help`, `-h`: Display CLI usage information.
+| Flag | Commands | Description |
+| :--- | :--- | :--- |
+| `--provider <ollama\|groq\|gemini\|openrouter\|openai\|cerebras\|custom>` | `check`, `explain`, `bench` | Select the OpenAI-compatible inference provider preset (defaults to `ollama` or `PREFLIGHT_PROVIDER`). |
+| `--model <name>` | `check`, `explain`, `bench` | Override the provider model identifier (or set `PREFLIGHT_MODEL`). |
+| `--base <ref>` | `check`, `explain` | Git base ref to diff against (default: auto-detect). |
+| `--log <file>` | `check` | Attach a recent CI failure log file to `check` context. |
+| `--timeout <seconds>` | `check`, `explain` | Per-command verification timeout in seconds (default: `60`). |
+| `--no-verify` | `explain` | Skip local reproduction check during `explain`. |
+| `--hook` | `init` | Install the git `pre-push` hook. |
+| `--force` | `init` | Overwrite an existing custom `pre-push` hook. |
+| `--cases-dir <dir>` | `bench` | Benchmark cases directory (default: `bench/cases`). |
+| `--case <id>` | `bench` | Run a single benchmark case by ID. |
+| `--status <fail\|pass\|all>` | `bench` | Filter benchmark cases by status (default: `all`). |
+| `--language <lang>` | `bench` | Filter benchmark cases by language (`javascript`, `typescript`, `python`). |
+| `--limit <n>` | `bench` | Limit the number of benchmark cases to run. |
+| `--out <dir>` | `bench` | Write benchmark `summary.md` and `results.json` to directory. |
+| `--json` | all commands | Emit machine-readable, secret-redacted JSON output containing stage results, command exit codes, and Speed/Telemetry metrics. |
+| `--think` | `check`, `explain`, `bench` | Opt in to enable model reasoning mode during the Think / Explain call. |
+| `-h`, `--help` | global | Display CLI usage information. |
 
 ### 3.2 Generic Agent Skill (`skills/preflight/SKILL.md` & `docs/agent-setup.md`)
 
@@ -183,12 +199,13 @@ Preflight packages a cross-platform Agent Skill adhering to the open [Agent Skil
 2. **Fallback Mechanism — Direct Shell Invocation:**
    - Any coding agent, IDE task runner, or automation script can invoke `preflight check --json` and `preflight explain <log> --json` directly via a standard shell tool without skill registration.
 
-### 3.3 Optional Git `pre-push` Hook (`preflight init --hook`, Planned in Phase 1)
+### 3.3 Optional Git `pre-push` Hook (`preflight init --hook`)
 
 For developers and agent workflows that want automatic enforcement on every `git push` without manual agent prompting:
 
-- `preflight init --hook` installs a lightweight `.git/hooks/pre-push` script.
-- On `git push`, the hook invokes `preflight check` against the commits being pushed.
+- `preflight init --hook` installs an executable Preflight-managed `.git/hooks/pre-push` script (resolving standard `.git` directories as well as `gitdir:`/`commondir` pointers in linked git worktrees and submodules).
+- Existing custom `pre-push` hooks are never overwritten unless `--force` is passed explicitly; re-running `preflight init --hook` on an already-managed hook is idempotent (`already_installed` / `updated`).
+- On `git push`, the hook invokes `preflight check` (falling back to `npx --no-install preflight check`) against the local working tree.
 - If all allowlisted checks exit with `0`, the push proceeds normally; if any executed check fails with a non-zero exit code, the push is aborted with a diagnostic report (and can be bypassed explicitly with `git push --no-verify` when needed).
 
 ### 3.4 Speed & Telemetry Panel
@@ -287,7 +304,7 @@ Each file in `bench/cases/<id>.json` conforms to:
 
 - Every case label in `bench/cases/` is verified against **both** the actual GitHub Actions failure log and the exact commit diff (`base_sha..head_sha` at the time CI failed, even if the PR was later amended and merged).
 - Two failed-CI benchmark cases (`fail-01-express-pr-7531` and `fail-10-werkzeug-pr-3269`) have been reproduced end-to-end locally in [`bench/REPRO.md`](../bench/REPRO.md) to validate `<1s` scoped command execution.
-- Never fabricate, extrapolate, or cherry-pick benchmark numbers. Live benchmark scores will be reported only after `preflight bench` runs against the completed Phase 1–2 pipeline, always stating exact denominators and distinguishing static diff+log evaluation across all 35 cases from full local checkout command execution.
+- Never fabricate, extrapolate, or cherry-pick benchmark numbers. `preflight bench` is implemented and unit-tested (`src/bench/`), while live LLM benchmark runs (`preflight bench --out bench/results`) against local Ollama and cloud providers have not yet been executed. Live benchmark scores will be reported only from actual live runs, always stating exact denominators and distinguishing static `mode: triage` evaluation across all 35 cases from full local checkout command execution.
 
 ---
 
@@ -326,13 +343,20 @@ Preflight talks to all inference backends through a single `OpenAICompatibleClie
 
 1. **Phase 0 — Groundwork, Open-Source Pivot & Verified Benchmark Corpus (Complete):**
    - Architecture and technical specification (`docs/SPEC.md`, `docs/DECISIONS.md`, `docs/notes/providers.md`, `docs/notes/agent-integrations.md`).
-   - Provider-agnostic `OpenAICompatibleClient` (`src/clients/`) supporting `ollama` ($0 local default), `groq`, `gemini`, `openrouter`, `openai`, `cerebras`, and `custom`.
-   - CLI entry point (`src/cli.ts`, with `check`, `explain`, and `bench` wired as `not implemented` stubs exiting `0`), portable Agent Skill (`skills/preflight/SKILL.md`, `docs/agent-setup.md`), and unit test suite.
-   - Curated 35-case real GitHub PR benchmark corpus (`bench/cases/*.json`, `bench/README.md`) with 2 local `<1s` reproductions (`bench/REPRO.md`).
-2. **Phase 1 — Core `Gather → Think → Verify` & `Explain` Pipeline (Next):**
-   - Implement `Gather` (git diff parser, JS/TS & Python static import graph, `.github/workflows/*.yml` command extractor, and 5-tier token trimmer).
-   - Implement `Think` (prompt builder, plain-text JSON extractor, schema validator, and 1-retry self-correction loop).
-   - Implement `Verify` (workflow-derived command allowlist validator, subprocess runner with timeouts, exit-code verdict reporter, and Speed/Telemetry panel).
-   - Implement `Explain` (`preflight explain <CI log URL or file>`) and optional `preflight init --hook` git `pre-push` hook installer.
-3. **Phase 2 — Benchmark Runner & Multi-Provider Evaluation (Planned):**
-   - Implement `preflight bench` to evaluate command selection recall, passing-PR precision, root-cause explanation accuracy, and latency telemetry across the 35 verified PR cases on local Ollama and cloud OpenAI-compatible providers.
+   - Provider-agnostic `OpenAICompatibleClient` (`src/clients/`) supporting `ollama` ($0 local default), `groq`, `gemini`, `openrouter`, `openai`, `cerebras`, and `custom` with single-flight queueing, HTTP 429 `Retry-After` backoff, and secret redaction.
+   - CLI entry point (`src/cli.ts`), portable Agent Skill (`skills/preflight/SKILL.md`, `docs/agent-setup.md`), and curated 35-case real GitHub PR benchmark corpus (`bench/cases/*.json`, `bench/README.md`) with 2 local `<1s` reproductions (`bench/REPRO.md`).
+2. **Phase 1 — Core `Gather → Think → Verify` Pipeline & Telemetry (Complete):**
+   - `Gather` (`src/gather/`): git diff parser, JS/TS & Python static import graph, `.github/workflows/*.yml` command extractor, and 5-tier `<= 20K` token budgeter.
+   - `Think` (`src/think/`): prompt builder, plain-text JSON extractor, schema validator, and 1-retry self-correction loop.
+   - `Verify` (`src/verify/`): workflow-derived command allowlist validator (`shell: false`), subprocess runner with timeouts and bounded output capture, exit-code-only verdict reporter, and Speed & Telemetry panel (`src/telemetry/`).
+3. **Phase 2 — `Explain`, Git `pre-push` Hook, Agent Skill & `preflight bench` Runner (Complete):**
+   - `Explain` (`src/explain/`): `preflight explain <CI log URL or file>` with local file and GitHub Actions log loading, structured root-cause/patch diagnosis, and optional local reproduction (`--no-verify` opt-out).
+   - Git `pre-push` hook installer (`src/hooks/`): `preflight init --hook` (worktree/submodule-aware, custom hook protection with `--force`).
+   - Benchmark evaluation runner (`src/bench/`): sequential `preflight bench` triage evaluation with `summary.md` and `results.json` export (`--out`), plus updated `skills/preflight/SKILL.md` and `docs/agent-setup.md`.
+4. **Phase 3 — Adversarial Hardening & Security Audit (Complete):**
+   - Hardened workflow allowlist against shell injection, path traversal (including URI/colon/drive/comma/multi-equals payloads), flag/target swaps, and `--exit-zero`, plus fail-closed `no_checks_run` handling and secret redaction verified by **299 Vitest tests across 12 test files** (including **76 adversarial stress & security tests** in `test/adversarial.test.ts`).
+5. **Phase 4 — Story, README & Docs Polish (Complete):**
+   - Authoritative v0.1.0 `README.md`, synced `docs/SPEC.md`, `docs/DECISIONS.md`, `docs/notes/agent-integrations.md`, `docs/agent-setup.md`, and `skills/preflight/SKILL.md` with zero stale scaffold text and exact code-verified flags/contracts.
+6. **Phase 5 — Final 3-Reviewer Audit Panel & Live Benchmark Run (Upcoming):**
+   - Independent 3-reviewer code, security, and documentation audit.
+   - Execute live `preflight bench --out bench/results` runs against local Ollama and free-tier cloud providers and publish verified recall, false-alarm, and throughput tables.

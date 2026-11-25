@@ -124,7 +124,7 @@ Developers use a variety of AI coding agents — including **Claude Code**, **Op
    - The same `skills/preflight/SKILL.md` directory installs directly into Claude Code (`.claude/skills/preflight`), Codex (`.codex/skills/preflight` or `.agents/skills/preflight`), Cursor (`.cursor/skills/preflight` or `.agents/skills/preflight`), OpenClaw (`<workspace>/skills/preflight`), and Antigravity (`.agent/skills/preflight`).
 2. **Universal CLI `--json` Contract & Direct Shell Fallback:**
    - All agent skills and shell integrations invoke the same `preflight check --json` and `preflight explain <log> --json` CLI commands. Agents without skill loaders can call `preflight check --json` directly via their standard shell execution tool.
-3. **Optional Git `pre-push` Hook (`preflight init --hook`, Planned in Phase 1):**
+3. **Optional Git `pre-push` Hook (`preflight init --hook`):**
    - Provide `preflight init --hook` to install a local `.git/hooks/pre-push` hook that runs `preflight check` automatically before `git push` transfers commits to a remote, blocking pushes when allowlisted checks fail with a non-zero exit code.
 
 ### Consequences
@@ -182,7 +182,7 @@ To evaluate whether Preflight selects the right checks, catches real regressions
 4. **Local `<1s` Anchor Reproductions ([`bench/REPRO.md`](../bench/REPRO.md)):**
    - Reproduce 2 failed-CI anchor cases (`fail-01-express-pr-7531` in `0.84s` and `fail-10-werkzeug-pr-3269` in `0.80s`) end-to-end locally from checkout through scoped command failure to prove local verification speed and fidelity.
 5. **Uncompromising Honesty Rule:**
-   - Report exact results and denominators from real runs only after `preflight bench` executes in Phase 2. Never fabricate metrics, never hide cases where a model misses a target command, and clearly distinguish static diff/log evaluation across the full 35-case corpus from full local command execution runs.
+   - Report exact results and denominators from real runs only when `preflight bench` runs against a live provider. Never fabricate metrics, never hide cases where a model misses a target command, and clearly distinguish static diff/log evaluation across the full 35-case corpus from full local command execution runs.
 
 ### Consequences
 

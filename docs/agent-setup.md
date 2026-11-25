@@ -55,7 +55,7 @@ All four Preflight commands are ready to use out of the box:
 - **Run the curated benchmark suite and write Markdown/JSON reports:**
   ```bash
   preflight bench --out bench/results
-  preflight bench --status fail --language ts --limit 5 --json
+  preflight bench --status fail --language typescript --limit 5 --json
   ```
 
 ### Provider Configuration ($0 Local Default + Free-Tier Cloud Presets)
