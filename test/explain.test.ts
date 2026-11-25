@@ -98,7 +98,10 @@ function createMockResult(spec: MockResponseSpec): ChatCompletionResult {
   };
 }
 
-function createMockClient(responses: readonly (MockResponseSpec | Error)[]): {
+function createMockClient(
+  responses: readonly (MockResponseSpec | Error)[],
+  provider: string = CLIENT_META.provider,
+): {
   client: LlmClient;
   calls: ChatCompletionRequest[];
 } {
@@ -106,7 +109,7 @@ function createMockClient(responses: readonly (MockResponseSpec | Error)[]): {
   let index = 0;
 
   const client: LlmClient = {
-    provider: CLIENT_META.provider,
+    provider,
     baseUrl: CLIENT_META.baseUrl,
     model: CLIENT_META.model,
     chatCompletion(request: ChatCompletionRequest): Promise<ChatCompletionResult> {
@@ -620,12 +623,58 @@ describe('runExplain', () => {
 
     expect(mock.calls).toHaveLength(1);
     expect(mock.calls[0]?.reasoning_effort).toBe('low');
-    expect(mock.calls[0]?.reasoning_format).toBe('parsed');
+    expect('reasoning_format' in (mock.calls[0] ?? {})).toBe(false);
     expect(mock.calls[0]?.messages[1]?.content).toContain(
       'Error: test failed in non-git directory',
     );
     expect(result.verification?.verdict).toBe('passed');
     expect(result.verification?.verdictMessage).toBe('these checks passed');
+  });
+
+  it('gates reasoning_format in think mode to groq and cerebras only', async () => {
+    const dir = createTempRepo();
+
+    for (const provider of ['openai', 'gemini', 'ollama']) {
+      const mock = createMockClient(
+        [{ content: JSON.stringify(VALID_EXPLAIN_OUTPUT) }],
+        provider,
+      );
+      await runExplain(
+        {
+          source: 'ci.log',
+          cwd: dir,
+          think: true,
+          verify: false,
+          readFileFn: () => 'FAIL test/math.test.ts',
+          gitExec: createMockGitExec(),
+        },
+        mock.client,
+        { ...CLIENT_META, provider },
+      );
+      expect(mock.calls[0]?.reasoning_effort).toBe('low');
+      expect('reasoning_format' in (mock.calls[0] ?? {})).toBe(false);
+    }
+
+    for (const provider of ['groq', 'cerebras']) {
+      const mock = createMockClient(
+        [{ content: JSON.stringify(VALID_EXPLAIN_OUTPUT) }],
+        provider,
+      );
+      await runExplain(
+        {
+          source: 'ci.log',
+          cwd: dir,
+          think: true,
+          verify: false,
+          readFileFn: () => 'FAIL test/math.test.ts',
+          gitExec: createMockGitExec(),
+        },
+        mock.client,
+        { ...CLIENT_META, provider },
+      );
+      expect(mock.calls[0]?.reasoning_effort).toBe('low');
+      expect(mock.calls[0]?.reasoning_format).toBe('parsed');
+    }
   });
 });
 

@@ -28,7 +28,7 @@ import {
   type EnvSource,
 } from './clients/providers.js';
 import type { LlmClient } from './clients/types.js';
-import { loadEnv } from './env.js';
+import { loadEnv, type LoadEnvOptions } from './env.js';
 import {
   formatExplainReport,
   runExplain,
@@ -40,6 +40,8 @@ import {
   installPrePushHook,
   type InstallPrePushHookResult,
 } from './hooks/index.js';
+
+export const DEFAULT_CLI_LLM_TIMEOUT_MS = 120_000;
 
 export type CliCommand = 'check' | 'explain' | 'init' | 'bench';
 
@@ -55,6 +57,7 @@ export type CreateCliClientFn = (
 export interface CliDependencies {
   cwd?: string;
   env?: EnvSource;
+  loadEnvFn?: (envFilePath?: string, options?: LoadEnvOptions) => void;
   createClient?: CreateCliClientFn;
   runCheckFn?: (
     options: CheckOptions,
@@ -81,6 +84,45 @@ const VALID_COMMANDS: ReadonlySet<string> = new Set<CliCommand>([
   'init',
   'bench',
 ]);
+
+const ALLOWED_FLAGS_BY_COMMAND: Readonly<
+  Record<CliCommand, ReadonlySet<string>>
+> = {
+  check: new Set([
+    '--json',
+    '--env-file',
+    '--provider',
+    '--model',
+    '--think',
+    '--base',
+    '--log',
+    '--timeout',
+  ]),
+  explain: new Set([
+    '--json',
+    '--env-file',
+    '--provider',
+    '--model',
+    '--think',
+    '--base',
+    '--timeout',
+    '--no-verify',
+  ]),
+  init: new Set(['--json', '--env-file', '--hook', '--force']),
+  bench: new Set([
+    '--json',
+    '--env-file',
+    '--provider',
+    '--model',
+    '--think',
+    '--cases-dir',
+    '--case',
+    '--status',
+    '--language',
+    '--limit',
+    '--out',
+  ]),
+};
 
 const VALID_BENCH_STATUSES: readonly BenchStatusFilter[] = [
   'fail',
@@ -113,6 +155,7 @@ const USAGE = [
   '  --provider <ollama|groq|gemini|openrouter|openai|cerebras|custom>',
   '                         LLM provider preset (default: ollama)',
   '  --model <name>         Override the provider model name',
+  '  --env-file <path>      Load environment variables from a specific .env file',
   '  --base <ref>           Git base ref to diff against (default: auto-detect)',
   '  --log <file>           Attach a recent CI failure log to check context',
   '  --timeout <seconds>    Per-command verification timeout in seconds (default: 60)',
@@ -146,6 +189,7 @@ interface ParsedCliArgs {
   showHelp: boolean;
   provider?: string;
   model?: string;
+  envFile?: string;
   baseRef?: string;
   logFile?: string;
   timeoutMs?: number;
@@ -331,6 +375,21 @@ function parseCliArgs(
       continue;
     }
 
+    if (token === '--env-file' || token.startsWith('--env-file=')) {
+      const read = readFlagValue(argv, i, '--env-file', io);
+      if (!read.ok) {
+        return null;
+      }
+      const trimmedEnvFile = read.value.trim();
+      if (trimmedEnvFile.length === 0) {
+        io.stderr('Missing value for --env-file');
+        return null;
+      }
+      parsed.envFile = trimmedEnvFile;
+      i = read.nextIndex;
+      continue;
+    }
+
     if (token === '--base' || token.startsWith('--base=')) {
       const read = readFlagValue(argv, i, '--base', io);
       if (!read.ok) {
@@ -448,6 +507,81 @@ function parseCliArgs(
   return parsed;
 }
 
+function collectProvidedFlags(parsed: ParsedCliArgs): string[] {
+  const flags: string[] = [];
+  if (parsed.json) {
+    flags.push('--json');
+  }
+  if (parsed.envFile !== undefined) {
+    flags.push('--env-file');
+  }
+  if (parsed.provider !== undefined) {
+    flags.push('--provider');
+  }
+  if (parsed.model !== undefined) {
+    flags.push('--model');
+  }
+  if (parsed.think) {
+    flags.push('--think');
+  }
+  if (parsed.baseRef !== undefined) {
+    flags.push('--base');
+  }
+  if (parsed.logFile !== undefined) {
+    flags.push('--log');
+  }
+  if (parsed.timeoutMs !== undefined) {
+    flags.push('--timeout');
+  }
+  if (parsed.noVerify) {
+    flags.push('--no-verify');
+  }
+  if (parsed.hook) {
+    flags.push('--hook');
+  }
+  if (parsed.force) {
+    flags.push('--force');
+  }
+  if (parsed.casesDir !== undefined) {
+    flags.push('--cases-dir');
+  }
+  if (parsed.caseId !== undefined) {
+    flags.push('--case');
+  }
+  if (parsed.status !== undefined) {
+    flags.push('--status');
+  }
+  if (parsed.language !== undefined) {
+    flags.push('--language');
+  }
+  if (parsed.limit !== undefined) {
+    flags.push('--limit');
+  }
+  if (parsed.outDir !== undefined) {
+    flags.push('--out');
+  }
+  return flags;
+}
+
+function validateCommandFlags(
+  command: CliCommand,
+  parsed: ParsedCliArgs,
+  io: CliIo,
+): boolean {
+  const allowed = ALLOWED_FLAGS_BY_COMMAND[command];
+  const incompatible = collectProvidedFlags(parsed).filter(
+    (flag) => !allowed.has(flag),
+  );
+  if (incompatible.length === 0) {
+    return true;
+  }
+  const label = incompatible.length === 1 ? 'Option' : 'Options';
+  io.stderr(
+    `${label} ${incompatible.join(', ')} not supported for "${command}".\nRun "preflight --help" for usage.`,
+  );
+  return false;
+}
+
 function collectEnvSecrets(env: EnvSource): string[] {
   const secrets: string[] = [];
   for (const key of ENV_SECRET_KEYS) {
@@ -459,11 +593,23 @@ function collectEnvSecrets(env: EnvSource): string[] {
   return secrets;
 }
 
+function createDefaultClient(
+  options: OpenAICompatibleClientOptions,
+): LlmClient {
+  return createClientFromEnv({
+    ...options,
+    timeoutMs: options.timeoutMs ?? DEFAULT_CLI_LLM_TIMEOUT_MS,
+  });
+}
+
 function buildClientOptions(
   parsed: ParsedCliArgs,
   env: EnvSource,
 ): OpenAICompatibleClientOptions {
-  const options: OpenAICompatibleClientOptions = { env };
+  const options: OpenAICompatibleClientOptions = {
+    env,
+    timeoutMs: DEFAULT_CLI_LLM_TIMEOUT_MS,
+  };
   if (parsed.provider !== undefined) {
     options.provider = parsed.provider;
   }
@@ -517,10 +663,16 @@ export async function runCli(
     return 1;
   }
 
+  const command = parsed.command as CliCommand;
+  if (!validateCommandFlags(command, parsed, io)) {
+    return 1;
+  }
+
   const cwd = deps.cwd ?? process.cwd();
-  const env = deps.env ?? process.env;
-  const envSecrets = collectEnvSecrets(env);
-  const createClient = deps.createClient ?? createClientFromEnv;
+  const baseEnv = deps.env ?? process.env;
+  let envSecrets = collectEnvSecrets(baseEnv);
+  const loadEnvFn = deps.loadEnvFn ?? loadEnv;
+  const createClient = deps.createClient ?? createDefaultClient;
   const runCheckFn = deps.runCheckFn ?? runCheck;
   const runExplainFn = deps.runExplainFn ?? runExplain;
   const runBenchFn = deps.runBenchFn ?? runBench;
@@ -529,7 +681,16 @@ export async function runCli(
     deps.readFileFn ?? ((filePath: string) => readFileSync(filePath, 'utf8'));
 
   try {
-    switch (parsed.command as CliCommand) {
+    let effectiveEnv: EnvSource = baseEnv;
+    if (parsed.envFile !== undefined) {
+      const mergedEnv: Record<string, string | undefined> = { ...baseEnv };
+      const resolvedEnvPath = path.resolve(cwd, parsed.envFile);
+      loadEnvFn(resolvedEnvPath, { targetEnv: mergedEnv });
+      effectiveEnv = mergedEnv;
+      envSecrets = collectEnvSecrets(effectiveEnv);
+    }
+
+    switch (command) {
       case 'check': {
         let recentCiLog: string | undefined;
         if (parsed.logFile !== undefined) {
@@ -537,7 +698,7 @@ export async function runCli(
           recentCiLog = readFileFn(resolvedLogPath);
         }
 
-        const client = createClient(buildClientOptions(parsed, env));
+        const client = createClient(buildClientOptions(parsed, effectiveEnv));
         const clientMeta: CheckClientMeta = {
           provider: client.provider,
           model: client.model,
@@ -576,7 +737,7 @@ export async function runCli(
           return 1;
         }
 
-        const client = createClient(buildClientOptions(parsed, env));
+        const client = createClient(buildClientOptions(parsed, effectiveEnv));
         const clientMeta: ExplainClientMeta = {
           provider: client.provider,
           model: client.model,
@@ -606,6 +767,13 @@ export async function runCli(
       }
 
       case 'init': {
+        if (!parsed.hook) {
+          io.stderr(
+            'Missing required --hook flag for "init". Run "preflight init --hook" to install the git pre-push hook.',
+          );
+          return 1;
+        }
+
         const result = installHookFn(cwd, { force: parsed.force });
         if (parsed.json) {
           io.stdout(stringifyRedactedJson(result, envSecrets));
@@ -616,7 +784,7 @@ export async function runCli(
       }
 
       case 'bench': {
-        const client = createClient(buildClientOptions(parsed, env));
+        const client = createClient(buildClientOptions(parsed, effectiveEnv));
         const clientMeta: BenchClientMeta = {
           provider: client.provider,
           model: client.model,
@@ -626,6 +794,7 @@ export async function runCli(
         const benchOptions: BenchOptions = {
           cwd,
           think: parsed.think,
+          secrets: envSecrets,
         };
         if (parsed.casesDir !== undefined) {
           benchOptions.casesDir = path.resolve(cwd, parsed.casesDir);
@@ -650,7 +819,9 @@ export async function runCli(
         if (parsed.json) {
           io.stdout(stringifyRedactedJson(report, envSecrets));
         } else {
-          io.stdout(redactSecrets(formatBenchReport(report), envSecrets));
+          io.stdout(
+            redactSecrets(formatBenchReport(report, envSecrets), envSecrets),
+          );
         }
         return report.metrics.errors > 0 ? 1 : 0;
       }
@@ -678,8 +849,14 @@ function isMainModule(): boolean {
 }
 
 if (isMainModule()) {
-  loadEnv();
-  void runCli(process.argv.slice(2)).then((code) => {
+  const cliArgs = process.argv.slice(2);
+  const hasExplicitEnvFile = cliArgs.some(
+    (arg) => arg === '--env-file' || arg.startsWith('--env-file='),
+  );
+  if (!hasExplicitEnvFile) {
+    loadEnv();
+  }
+  void runCli(cliArgs).then((code) => {
     process.exitCode = code;
   });
 }
