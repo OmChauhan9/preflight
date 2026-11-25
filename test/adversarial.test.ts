@@ -1383,6 +1383,62 @@ describe('Scenario 8: Phase 5 security hardening regressions', () => {
     ).toBe(true);
   });
 
+  it('[R1-M2-Final] blocks -vv/-vvv, --no-cov, --diff, tsc -t, and repeated -- depth smuggling while keeping legitimate scoped commands allowed', () => {
+    const workflows: VerifyWorkflowCommand[] = [
+      wf('npx eslint . --max-warnings 0'),
+      wf('yamllint .'),
+      wf('rubocop'),
+      wf('rspec'),
+      wf('pytest'),
+      wf('ruff check .'),
+      wf('tsc --noEmit'),
+      wf('npx tsc --noEmit'),
+      wf('npm test'),
+      wf('npx vitest run --coverage'),
+    ];
+
+    const flagAttacks = [
+      'npx eslint . --max-warnings 0 -vv',
+      'yamllint . -vv',
+      'rubocop -vv',
+      'rspec -vvv',
+      'pytest --no-cov',
+      'ruff check --diff .',
+      'tsc --noEmit -t es5',
+      'tsc --noEmit -t=es5',
+      'npx tsc --noEmit -t es5',
+    ];
+
+    for (const attack of flagAttacks) {
+      expect(checkCommandAllowlist(attack, workflows).allowed).toBe(false);
+    }
+
+    // Repeated `--` smuggling and shifted `--` depth MUST be refused
+    const npmCoverageWorkflow = [wf('npm test -- --coverage')];
+    expect(
+      checkCommandAllowlist('npm test -- -- --coverage', npmCoverageWorkflow)
+        .allowed,
+    ).toBe(false);
+    expect(
+      checkCommandAllowlist('npx vitest run -- --coverage', workflows).allowed,
+    ).toBe(false);
+    expect(
+      checkCommandAllowlist('npm test -- -- test/foo.test.ts', workflows)
+        .allowed,
+    ).toBe(false);
+
+    // Legitimate scoped invocations remain allowed
+    expect(
+      checkCommandAllowlist(
+        'npm test -- --coverage test/a.test.ts',
+        npmCoverageWorkflow,
+      ).allowed,
+    ).toBe(true);
+    expect(
+      checkCommandAllowlist('npm test -- test/foo.test.ts', workflows).allowed,
+    ).toBe(true);
+  });
+
   it('[R1-M3] blocks shell builtins and symlinked cd escape while scoping safe cd web && npm test to repo/web', async () => {
     const repoDir = createTempDir('preflight-adv-p5-m3-');
     const outsideDir = createTempDir('preflight-adv-p5-m3-out-');
