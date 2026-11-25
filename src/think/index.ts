@@ -1,3 +1,4 @@
+import { supportsReasoningFormat } from '../clients/http.js';
 import type {
   ChatCompletionRequest,
   ChatCompletionResult,
@@ -21,6 +22,7 @@ export const DEFAULT_REASONING_EFFORT = 'low';
 function buildCompletionRequest(
   messages: ChatMessage[],
   options: ThinkOptions | undefined,
+  provider: string,
 ): ChatCompletionRequest {
   const maxCompletionTokens =
     options?.maxCompletionTokens ?? DEFAULT_MAX_COMPLETION_TOKENS;
@@ -44,7 +46,9 @@ function buildCompletionRequest(
       customEffort && customEffort.length > 0
         ? customEffort
         : DEFAULT_REASONING_EFFORT;
-    request.reasoning_format = 'parsed';
+    if (supportsReasoningFormat(provider)) {
+      request.reasoning_format = 'parsed';
+    }
   }
 
   if (options?.signal !== undefined) {
@@ -203,7 +207,7 @@ export async function runThink(
 
   const initialMessages = buildThinkMessages(input);
   const firstResponse = await client.chatCompletion(
-    buildCompletionRequest(initialMessages, options),
+    buildCompletionRequest(initialMessages, options, client.provider),
   );
   const firstEvaluation = evaluateResponse(firstResponse);
 
@@ -224,7 +228,7 @@ export async function runThink(
     firstEvaluation.errors,
   );
   const secondResponse = await client.chatCompletion(
-    buildCompletionRequest(retryMessages, options),
+    buildCompletionRequest(retryMessages, options, client.provider),
   );
   const secondEvaluation = evaluateResponse(secondResponse);
 

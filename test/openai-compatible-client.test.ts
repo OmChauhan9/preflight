@@ -153,6 +153,70 @@ describe('provider presets & resolveProviderConfig', () => {
       /Unknown provider "mystery-llm"/,
     );
   });
+
+  it('never pairs provider-specific env keys with custom baseUrl overrides and requires explicit PREFLIGHT_API_KEY', () => {
+    for (const provider of CLOUD_PRESETS) {
+      const preset = PROVIDER_PRESETS[provider];
+
+      // Env override pointing to a rogue endpoint must NOT silently use preset.apiKeyEnv.
+      expect(() =>
+        resolveProviderConfig(
+          { provider },
+          {
+            PREFLIGHT_BASE_URL: 'https://rogue.example/v1',
+            [preset.apiKeyEnv]: `secret-for-${provider}`,
+          },
+        ),
+      ).toThrow(/custom base URL.*PREFLIGHT_API_KEY/i);
+
+      // Options baseUrl override must also refuse provider-specific env var.
+      expect(() =>
+        resolveProviderConfig(
+          { provider, baseUrl: 'https://proxy.example/v1' },
+          {
+            [preset.apiKeyEnv]: `secret-for-${provider}`,
+          },
+        ),
+      ).toThrow(/custom base URL.*PREFLIGHT_API_KEY/i);
+
+      // Explicit PREFLIGHT_API_KEY or options.apiKey IS accepted with custom baseUrl.
+      const withExplicitEnvKey = resolveProviderConfig(
+        { provider },
+        {
+          PREFLIGHT_BASE_URL: 'https://proxy.example/v1/',
+          PREFLIGHT_API_KEY: 'explicit-proxy-key',
+          [preset.apiKeyEnv]: `secret-for-${provider}`,
+        },
+      );
+      expect(withExplicitEnvKey.baseUrl).toBe('https://proxy.example/v1');
+      expect(withExplicitEnvKey.apiKey).toBe('explicit-proxy-key');
+
+      const withExplicitOptKey = resolveProviderConfig(
+        { provider, baseUrl: 'https://proxy.example/v1', apiKey: 'opt-proxy-key' },
+        { [preset.apiKeyEnv]: `secret-for-${provider}` },
+      );
+      expect(withExplicitOptKey.apiKey).toBe('opt-proxy-key');
+
+      // Matching preset baseUrl (modulo trailing slashes) still accepts provider-specific env var.
+      const matchingPresetWithSlash = resolveProviderConfig(
+        { provider, baseUrl: `${preset.baseUrl}///` },
+        { [preset.apiKeyEnv]: `secret-for-${provider}` },
+      );
+      expect(matchingPresetWithSlash.baseUrl).toBe(preset.baseUrl);
+      expect(matchingPresetWithSlash.apiKey).toBe(`secret-for-${provider}`);
+    }
+
+    // Ollama with custom baseUrl must also never send OLLAMA_API_KEY automatically.
+    const ollamaCustom = resolveProviderConfig(
+      { provider: 'ollama' },
+      {
+        PREFLIGHT_BASE_URL: 'https://rogue.example/v1',
+        OLLAMA_API_KEY: 'ollama-only-secret',
+      },
+    );
+    expect(ollamaCustom.baseUrl).toBe('https://rogue.example/v1');
+    expect(ollamaCustom.apiKey).toBeUndefined();
+  });
 });
 
 describe('OpenAICompatibleClient', () => {
@@ -509,5 +573,156 @@ describe('OpenAICompatibleClient', () => {
     await expect(
       client.chatCompletion({ messages: [{ role: 'user', content: 'slow request' }] }),
     ).rejects.toThrow(/ollama request timed out after 20ms/);
+  });
+
+  it('sends reasoning_format only for groq and cerebras and omits it for openai, gemini, ollama, openrouter, and custom', async () => {
+    const mock = createMockFetch(() =>
+      createJsonResponse({
+        id: 'chatcmpl-reasoning-gate',
+        choices: [{ index: 0, message: { role: 'assistant', content: '{}' } }],
+      }),
+    );
+
+    const omittedProviders: Array<{ provider: ProviderName; env: Record<string, string> }> = [
+      { provider: 'openai', env: { OPENAI_API_KEY: 'sk-test1234567890' } },
+      { provider: 'gemini', env: { GEMINI_API_KEY: 'AIzaTest1234567890' } },
+      { provider: 'ollama', env: {} },
+      { provider: 'openrouter', env: { OPENROUTER_API_KEY: 'sk-or-test1234567890' } },
+      {
+        provider: 'custom',
+        env: {
+          PREFLIGHT_BASE_URL: 'http://localhost:8080/v1',
+          PREFLIGHT_MODEL: 'local-coder',
+        },
+      },
+    ];
+
+    for (const entry of omittedProviders) {
+      const client = new OpenAICompatibleClient({
+        provider: entry.provider,
+        env: entry.env,
+        fetch: mock.fetch,
+        singleFlightQueue: new SingleFlightQueue(),
+      });
+      await client.chatCompletion({
+        messages: [{ role: 'user', content: 'test' }],
+        reasoning_effort: 'low',
+        reasoning_format: 'parsed',
+      });
+      const lastCall = mock.calls[mock.calls.length - 1];
+      const body = JSON.parse(String(lastCall?.init?.body)) as Record<string, unknown>;
+      expect(body.reasoning_effort).toBe('low');
+      expect('reasoning_format' in body).toBe(false);
+    }
+
+    const includedProviders: Array<{ provider: ProviderName; env: Record<string, string> }> = [
+      { provider: 'groq', env: { GROQ_API_KEY: 'gsk_test1234567890' } },
+      { provider: 'cerebras', env: { CEREBRAS_API_KEY: 'csk-test1234567890' } },
+    ];
+
+    for (const entry of includedProviders) {
+      const client = new OpenAICompatibleClient({
+        provider: entry.provider,
+        env: entry.env,
+        fetch: mock.fetch,
+        singleFlightQueue: new SingleFlightQueue(),
+      });
+      await client.chatCompletion({
+        messages: [{ role: 'user', content: 'test' }],
+        reasoning_effort: 'low',
+        reasoning_format: 'parsed',
+      });
+      const lastCall = mock.calls[mock.calls.length - 1];
+      const body = JSON.parse(String(lastCall?.init?.body)) as Record<string, unknown>;
+      expect(body.reasoning_effort).toBe('low');
+      expect(body.reasoning_format).toBe('parsed');
+    }
+  });
+
+  it('includes error.cause details on network failures and appends an actionable Ollama recovery hint', async () => {
+    const connRefused = Object.assign(
+      new Error('connect ECONNREFUSED 127.0.0.1:11434'),
+      { code: 'ECONNREFUSED' },
+    );
+    const ollamaMock = createMockFetch(() =>
+      Promise.reject(new TypeError('fetch failed', { cause: connRefused })),
+    );
+
+    const ollamaClient = new OpenAICompatibleClient({
+      provider: 'ollama',
+      env: {},
+      fetch: ollamaMock.fetch,
+      singleFlightQueue: new SingleFlightQueue(),
+    });
+
+    let ollamaErr: unknown;
+    try {
+      await ollamaClient.chatCompletion({
+        messages: [{ role: 'user', content: 'ping' }],
+      });
+    } catch (error) {
+      ollamaErr = error;
+    }
+
+    expect(ollamaErr).toBeInstanceOf(LlmHttpError);
+    const ollamaMsg = (ollamaErr as LlmHttpError).message;
+    expect(ollamaMsg).toContain('ECONNREFUSED');
+    expect(ollamaMsg).toContain(
+      'Ensure Ollama is running at http://localhost:11434/v1 ("ollama serve") or select another preset with --provider.',
+    );
+
+    // Also handles Node 22 AggregateError causes (dual-stack localhost refusal).
+    const aggregateCause = Object.assign(
+      new AggregateError([
+        Object.assign(new Error('connect ECONNREFUSED ::1:11434'), {
+          code: 'ECONNREFUSED',
+        }),
+      ]),
+      { code: 'ECONNREFUSED' },
+    );
+    const aggMock = createMockFetch(() =>
+      Promise.reject(new TypeError('fetch failed', { cause: aggregateCause })),
+    );
+    const aggClient = new OpenAICompatibleClient({
+      provider: 'ollama',
+      env: {},
+      fetch: aggMock.fetch,
+      singleFlightQueue: new SingleFlightQueue(),
+    });
+    await expect(
+      aggClient.chatCompletion({ messages: [{ role: 'user', content: 'ping' }] }),
+    ).rejects.toThrow(/ECONNREFUSED.*ollama serve/i);
+
+    // Non-Ollama providers include redacted cause details without the Ollama hint.
+    const openaiSecret = 'opaque-openai-network-secret-777';
+    const openaiCause = Object.assign(
+      new Error(`getaddrinfo ENOTFOUND api.openai.com using ${openaiSecret}`),
+      { code: 'ENOTFOUND' },
+    );
+    const openaiMock = createMockFetch(() =>
+      Promise.reject(new TypeError('fetch failed', { cause: openaiCause })),
+    );
+    const openaiClient = new OpenAICompatibleClient({
+      provider: 'openai',
+      apiKey: openaiSecret,
+      fetch: openaiMock.fetch,
+      singleFlightQueue: new SingleFlightQueue(),
+    });
+
+    let openaiErr: unknown;
+    try {
+      await openaiClient.chatCompletion({
+        messages: [{ role: 'user', content: 'ping' }],
+      });
+    } catch (error) {
+      openaiErr = error;
+    }
+
+    expect(openaiErr).toBeInstanceOf(LlmHttpError);
+    const openaiMsg = (openaiErr as LlmHttpError).message;
+    expect(openaiMsg).toContain('ENOTFOUND');
+    expect(openaiMsg).toContain('[REDACTED]');
+    expect(openaiMsg).not.toContain(openaiSecret);
+    expect(openaiMsg).not.toContain('ollama serve');
   });
 });

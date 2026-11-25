@@ -1,5 +1,5 @@
 import { performance } from 'node:perf_hooks';
-import { redactSecrets } from '../clients/http.js';
+import { redactSecrets, supportsReasoningFormat } from '../clients/http.js';
 import type {
   ChatCompletionRequest,
   ChatCompletionResult,
@@ -175,6 +175,7 @@ export function buildExplainRetryMessages(
 function buildExplainCompletionRequest(
   messages: ChatMessage[],
   options: ExplainOptions,
+  provider: string,
 ): ChatCompletionRequest {
   const request: ChatCompletionRequest = {
     messages,
@@ -184,7 +185,9 @@ function buildExplainCompletionRequest(
 
   if (options.think === true) {
     request.reasoning_effort = DEFAULT_EXPLAIN_REASONING_EFFORT;
-    request.reasoning_format = 'parsed';
+    if (supportsReasoningFormat(provider)) {
+      request.reasoning_format = 'parsed';
+    }
   }
 
   return request;
@@ -412,7 +415,7 @@ export async function runExplain(
   });
 
   const firstResponse = await client.chatCompletion(
-    buildExplainCompletionRequest(initialMessages, options),
+    buildExplainCompletionRequest(initialMessages, options, client.provider),
   );
   const firstEvaluation = evaluateExplainResponse(firstResponse);
 
@@ -435,7 +438,7 @@ export async function runExplain(
       firstEvaluation.errors,
     );
     const secondResponse = await client.chatCompletion(
-      buildExplainCompletionRequest(retryMessages, options),
+      buildExplainCompletionRequest(retryMessages, options, client.provider),
     );
     const secondEvaluation = evaluateExplainResponse(secondResponse);
 

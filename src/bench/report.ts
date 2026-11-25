@@ -48,10 +48,14 @@ function formatOutcomeCell(item: BenchCaseResult): string {
 /**
  * Renders a crisp, secret-redacted Markdown benchmark report suitable for `bench/results/summary.md`.
  */
-export function renderBenchSummaryMarkdown(report: BenchReport): string {
-  const safeProvider = redactSecrets(report.provider);
-  const safeModel = redactSecrets(report.model);
-  const safeBaseUrl = sanitizeBaseUrl(report.baseUrl);
+export function renderBenchSummaryMarkdown(
+  report: BenchReport,
+  secrets: readonly (string | undefined)[] = [],
+): string {
+  const safeProvider = redactSecrets(report.provider, secrets);
+  const safeModel = redactSecrets(report.model, secrets);
+  const safeBaseUrl = sanitizeBaseUrl(report.baseUrl, secrets);
+  const safeCasesDir = redactSecrets(report.casesDir, secrets);
   const { metrics } = report;
 
   const lines: string[] = [
@@ -61,18 +65,17 @@ export function renderBenchSummaryMarkdown(report: BenchReport): string {
     `- **Evaluation Mode:** \`${report.mode}\``,
     `- **Provider / Model:** \`${safeProvider}\` / \`${safeModel}\``,
     `- **Base URL:** \`${safeBaseUrl}\``,
-    `- **Cases Directory:** \`${report.casesDir}\``,
+    `- **Cases Directory:** \`${safeCasesDir}\``,
     '',
-    '> **Honesty Note (`mode: triage`):** These metrics measure static Stage 2 (`Think`) triage predictions and Stage 3 (`Verify`) workflow-derived command allowlist validation against benchmark case metadata (`changed_files`, `workflow_file`, baseline CI commands) without leaking ground-truth status, logs, or root-cause labels. This is distinct from full local repository checkout and subprocess execution (see `bench/REPRO.md` for locally reproduced `<1s` anchor cases).',
+    '> **Honesty Note (`mode: triage`):** These metrics measure static Stage 2 (`Think`) triage predictions and Stage 3 (`Verify`) workflow-derived command allowlist validation against benchmark case metadata (`changed_files`, `workflow_file`, baseline CI commands) without leaking ground-truth status, logs, or root-cause labels. `Caught (allowlisted command)` requires proposing an allowlisted command matching the failing CI check; `Target Hit` is reported separately as a diagnostic metric. This is distinct from full local repository checkout and subprocess execution (see `bench/REPRO.md` for locally reproduced `<1s` anchor cases).',
     '',
     '## Summary Metrics',
     '',
     '| Metric | Value |',
     '| :--- | :--- |',
     `| total_cases | ${metrics.totalCases} (${metrics.failedCases} failed, ${metrics.passingCases} passing) |`,
-    `| caught / failedCases | ${formatRatio(metrics.caught, metrics.failedCases)} |`,
-    `| command_caught / failedCases | ${formatRatio(metrics.commandCaught, metrics.failedCases)} |`,
-    `| target_caught / failedCases | ${formatRatio(metrics.targetCaught, metrics.failedCases)} |`,
+    `| Caught (allowlisted command) / failedCases | ${formatRatio(metrics.caught, metrics.failedCases)} |`,
+    `| Target Hit (diagnostic) / failedCases | ${formatRatio(metrics.targetCaught, metrics.failedCases)} |`,
     `| missed / failedCases | ${formatRatio(metrics.missed, metrics.failedCases)} |`,
     `| false_alarms / passingCases | ${formatRatio(metrics.falseAlarms, metrics.passingCases)} |`,
     `| allowlist_refusals | ${metrics.allowlistRefusals} |`,
@@ -84,12 +87,15 @@ export function renderBenchSummaryMarkdown(report: BenchReport): string {
     '',
     '## Per-Case Results',
     '',
-    '| Case ID | Repo | PR | Lang | Status | Outcome | Command | Target | Refused | Wall (ms) | Think (ms) | tok/s | Error |',
+    '| Case ID | Repo | PR | Lang | Status | Outcome | Command | Target Hit | Refused | Wall (ms) | Think (ms) | tok/s | Error |',
     '| :--- | :--- | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |',
   ];
 
   for (const item of report.cases) {
-    const errorCell = item.error !== null ? escapeMarkdownCell(redactSecrets(item.error)) : '-';
+    const errorCell =
+      item.error !== null
+        ? escapeMarkdownCell(redactSecrets(item.error, secrets))
+        : '-';
     const tokCell =
       item.tokPerSec !== null && Number.isFinite(item.tokPerSec)
         ? item.tokPerSec.toFixed(1)
@@ -99,16 +105,19 @@ export function renderBenchSummaryMarkdown(report: BenchReport): string {
     );
   }
 
-  return redactSecrets(lines.join('\n'));
+  return redactSecrets(lines.join('\n'), secrets);
 }
 
 /**
  * Formats a BenchReport into concise, secret-redacted terminal output.
  */
-export function formatBenchReport(report: BenchReport): string {
-  const safeProvider = redactSecrets(report.provider);
-  const safeModel = redactSecrets(report.model);
-  const safeBaseUrl = sanitizeBaseUrl(report.baseUrl);
+export function formatBenchReport(
+  report: BenchReport,
+  secrets: readonly (string | undefined)[] = [],
+): string {
+  const safeProvider = redactSecrets(report.provider, secrets);
+  const safeModel = redactSecrets(report.model, secrets);
+  const safeBaseUrl = sanitizeBaseUrl(report.baseUrl, secrets);
   const { metrics } = report;
 
   const providerHeader =
@@ -118,30 +127,31 @@ export function formatBenchReport(report: BenchReport): string {
 
   const lines: string[] = [
     `Preflight Benchmark (${report.mode})`,
-    `  Provider           : ${providerHeader}`,
-    `  Timestamp          : ${report.runTimestamp}`,
-    `  Cases              : ${metrics.totalCases} total (${metrics.failedCases} failed, ${metrics.passingCases} passing)`,
-    `  Caught (failed)    : ${formatRatio(metrics.caught, metrics.failedCases)} [command ${metrics.commandCaught}/${metrics.failedCases}, target ${metrics.targetCaught}/${metrics.failedCases}, missed ${metrics.missed}/${metrics.failedCases}]`,
-    `  False alarms (pass): ${formatRatio(metrics.falseAlarms, metrics.passingCases)}`,
-    `  Allowlist refusals : ${metrics.allowlistRefusals}`,
-    `  Errors             : ${metrics.errors}`,
-    `  Wall time          : median ${formatMs(metrics.medianWallMs)} | p95 ${formatMs(metrics.p95WallMs)}`,
-    `  Think / throughput : median think ${formatMs(metrics.medianThinkMs)} | median ${formatTokPerSec(metrics.medianTokPerSec)}`,
+    `  Provider                    : ${providerHeader}`,
+    `  Timestamp                   : ${report.runTimestamp}`,
+    `  Cases                       : ${metrics.totalCases} total (${metrics.failedCases} failed, ${metrics.passingCases} passing)`,
+    `  Caught (allowlisted command): ${formatRatio(metrics.caught, metrics.failedCases)} [missed ${metrics.missed}/${metrics.failedCases}]`,
+    `  Target Hit (diagnostic)     : ${formatRatio(metrics.targetCaught, metrics.failedCases)}`,
+    `  False alarms (pass)         : ${formatRatio(metrics.falseAlarms, metrics.passingCases)}`,
+    `  Allowlist refusals          : ${metrics.allowlistRefusals}`,
+    `  Errors                      : ${metrics.errors}`,
+    `  Wall time                   : median ${formatMs(metrics.medianWallMs)} | p95 ${formatMs(metrics.p95WallMs)}`,
+    `  Think / throughput          : median think ${formatMs(metrics.medianThinkMs)} | median ${formatTokPerSec(metrics.medianTokPerSec)}`,
   ];
 
   const erroredCases = report.cases.filter((item) => item.error !== null);
   if (erroredCases.length > 0) {
     lines.push('', 'Case errors:');
     for (const item of erroredCases) {
-      lines.push(`  - ${item.id}: ${redactSecrets(item.error ?? '')}`);
+      lines.push(`  - ${item.id}: ${redactSecrets(item.error ?? '', secrets)}`);
     }
   }
 
   if (report.writtenFiles !== undefined) {
     lines.push(
       '',
-      `Written summary : ${report.writtenFiles.summaryPath}`,
-      `Written results : ${report.writtenFiles.resultsPath}`,
+      `Written summary : ${redactSecrets(report.writtenFiles.summaryPath, secrets)}`,
+      `Written results : ${redactSecrets(report.writtenFiles.resultsPath, secrets)}`,
     );
   }
 
@@ -150,5 +160,5 @@ export function formatBenchReport(report: BenchReport): string {
     'Note: mode=triage evaluates static Think predictions + workflow allowlist validation (distinct from local repo checkout execution).',
   );
 
-  return redactSecrets(lines.join('\n'));
+  return redactSecrets(lines.join('\n'), secrets);
 }

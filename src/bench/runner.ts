@@ -29,14 +29,17 @@ function roundOneDecimal(value: number): number {
   return rounded === 0 ? 0 : rounded;
 }
 
-function serializeRedactedReportJson(report: BenchReport): string {
+function serializeRedactedReportJson(
+  report: BenchReport,
+  secrets: readonly string[] = [],
+): string {
   const json = JSON.stringify(
     report,
     (_key, value: unknown) =>
-      typeof value === 'string' ? redactSecrets(value) : value,
+      typeof value === 'string' ? redactSecrets(value, secrets) : value,
     2,
   );
-  return `${redactSecrets(json)}\n`;
+  return `${redactSecrets(json, secrets)}\n`;
 }
 
 /**
@@ -88,9 +91,10 @@ export async function runBench(
 
   const cases = loadBenchCases(loadOptions);
   const runTimestamp = new Date().toISOString();
-  const safeProvider = redactSecrets(clientMeta.provider);
-  const safeModel = redactSecrets(clientMeta.model);
-  const safeBaseUrl = sanitizeBaseUrl(clientMeta.baseUrl);
+  const secrets = options.secrets ?? [];
+  const safeProvider = redactSecrets(clientMeta.provider, secrets);
+  const safeModel = redactSecrets(clientMeta.model, secrets);
+  const safeBaseUrl = sanitizeBaseUrl(clientMeta.baseUrl, secrets);
 
   const thinkOptions: ThinkOptions = {};
   if (options.think !== undefined) {
@@ -152,6 +156,7 @@ export async function runBench(
           verify_ms: 0,
           total_wall_ms: totalWallMs,
         },
+        secrets,
       });
 
       results.push({
@@ -184,7 +189,7 @@ export async function runBench(
           ? roundOneDecimal(Math.max(0, nowMs - thinkStartMs))
           : 0;
       const rawMessage = error instanceof Error ? error.message : String(error);
-      const safeError = redactSecrets(rawMessage);
+      const safeError = redactSecrets(rawMessage, secrets);
 
       results.push({
         id: benchCase.id,
@@ -235,8 +240,8 @@ export async function runBench(
     const resultsPath = path.join(resolvedOutDir, 'results.json');
     report.writtenFiles = { summaryPath, resultsPath };
 
-    const summaryMarkdown = `${redactSecrets(renderBenchSummaryMarkdown(report))}\n`;
-    const resultsJson = serializeRedactedReportJson(report);
+    const summaryMarkdown = `${redactSecrets(renderBenchSummaryMarkdown(report, secrets), secrets)}\n`;
+    const resultsJson = serializeRedactedReportJson(report, secrets);
 
     writeFileSync(summaryPath, summaryMarkdown, 'utf8');
     writeFileSync(resultsPath, resultsJson, 'utf8');

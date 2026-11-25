@@ -93,12 +93,13 @@ function createMockResult(spec: MockResponseSpec): ChatCompletionResult {
 
 function createMockClient(
   responses: readonly (MockResponseSpec | Error)[],
+  provider = 'ollama',
 ): { client: LlmClient; calls: ChatCompletionRequest[] } {
   const calls: ChatCompletionRequest[] = [];
   let index = 0;
 
   const client: LlmClient = {
-    provider: 'ollama',
+    provider,
     baseUrl: 'http://localhost:11434/v1',
     model: 'qwen2.5-coder:7b',
     chatCompletion(request: ChatCompletionRequest): Promise<ChatCompletionResult> {
@@ -471,10 +472,10 @@ describe('runThink', () => {
     expect(result.wallTimeMs).toBe(100);
   });
 
-  it('configures reasoning_effort and reasoning_format only when think is enabled', async () => {
+  it('configures reasoning_effort when think is enabled and gates reasoning_format to groq/cerebras only', async () => {
     const validJson = JSON.stringify(VALID_THINK_OUTPUT);
 
-    const offMock = createMockClient([{ content: validJson }]);
+    const offMock = createMockClient([{ content: validJson }], 'groq');
     await runThink(SAMPLE_INPUT, offMock.client, {
       think: false,
       reasoningEffort: 'high',
@@ -485,24 +486,30 @@ describe('runThink', () => {
     expect('reasoning_effort' in (offCall ?? {})).toBe(false);
     expect('reasoning_format' in (offCall ?? {})).toBe(false);
 
-    const onDefaultMock = createMockClient([{ content: validJson }]);
-    await runThink(SAMPLE_INPUT, onDefaultMock.client, { think: true });
-    const onDefaultCall = onDefaultMock.calls[0];
-    expect(onDefaultCall?.max_completion_tokens).toBe(1500);
-    expect(onDefaultCall?.reasoning_effort).toBe('low');
-    expect(onDefaultCall?.reasoning_format).toBe('parsed');
+    // Ollama, OpenAI, and Gemini receive reasoning_effort but NOT reasoning_format.
+    for (const provider of ['ollama', 'openai', 'gemini']) {
+      const mock = createMockClient([{ content: validJson }], provider);
+      await runThink(SAMPLE_INPUT, mock.client, { think: true });
+      const call = mock.calls[0];
+      expect(call?.max_completion_tokens).toBe(1500);
+      expect(call?.reasoning_effort).toBe('low');
+      expect('reasoning_format' in (call ?? {})).toBe(false);
+    }
 
+    // Groq and Cerebras receive both reasoning_effort and reasoning_format: 'parsed'.
     const controller = new AbortController();
-    const onCustomMock = createMockClient([{ content: validJson }]);
-    await runThink(SAMPLE_INPUT, onCustomMock.client, {
-      think: true,
-      reasoningEffort: 'medium',
-      signal: controller.signal,
-    });
-    const onCustomCall = onCustomMock.calls[0];
-    expect(onCustomCall?.reasoning_effort).toBe('medium');
-    expect(onCustomCall?.reasoning_format).toBe('parsed');
-    expect(onCustomCall?.signal).toBe(controller.signal);
+    for (const provider of ['groq', 'cerebras']) {
+      const mock = createMockClient([{ content: validJson }], provider);
+      await runThink(SAMPLE_INPUT, mock.client, {
+        think: true,
+        reasoningEffort: 'medium',
+        signal: controller.signal,
+      });
+      const call = mock.calls[0];
+      expect(call?.reasoning_effort).toBe('medium');
+      expect(call?.reasoning_format).toBe('parsed');
+      expect(call?.signal).toBe(controller.signal);
+    }
   });
 
   it('rejects non-positive maxCompletionTokens without calling the LLM client', async () => {

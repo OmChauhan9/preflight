@@ -1,16 +1,31 @@
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
-import type {
-  BenchClientMeta,
-  BenchOptions,
-  BenchReport,
-  BenchStatusFilter,
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  runBench,
+  type BenchClientMeta,
+  type BenchOptions,
+  type BenchReport,
+  type BenchStatusFilter,
 } from '../src/bench/index.js';
 import type { CheckClientMeta, CheckOptions, CheckReport } from '../src/check.js';
-import { runCli, type CliDependencies, type CliIo } from '../src/cli.js';
+import {
+  DEFAULT_CLI_LLM_TIMEOUT_MS,
+  runCli,
+  type CliDependencies,
+  type CliIo,
+} from '../src/cli.js';
 import type { OpenAICompatibleClientOptions } from '../src/clients/openai-compatible.js';
 import { PROVIDER_NAMES } from '../src/clients/providers.js';
 import type { LlmClient } from '../src/clients/types.js';
+import { loadEnv, resolveDefaultEnvPath } from '../src/env.js';
 import type {
   ExplainClientMeta,
   ExplainOptions,
@@ -22,6 +37,23 @@ import {
   type InstallPrePushHookResult,
 } from '../src/hooks/index.js';
 import { computeTelemetry } from '../src/telemetry/index.js';
+
+const cliTestTempDirs: string[] = [];
+
+function createCliTempDir(prefix = 'preflight-cli-test-'): string {
+  const dir = mkdtempSync(path.join(tmpdir(), prefix));
+  cliTestTempDirs.push(dir);
+  return dir;
+}
+
+afterEach(() => {
+  while (cliTestTempDirs.length > 0) {
+    const dir = cliTestTempDirs.pop();
+    if (dir !== undefined) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
 
 function createCapturedIo(): {
   io: CliIo;
@@ -272,6 +304,7 @@ describe('preflight CLI help', () => {
       );
       expect(output).toContain('default: ollama');
       expect(output).toContain('--model <name>');
+      expect(output).toContain('--env-file <path>');
       expect(output).toContain('--base <ref>');
       expect(output).toContain('--log <file>');
       expect(output).toContain('--timeout <seconds>');
@@ -321,6 +354,7 @@ describe('preflight CLI bench command', () => {
     expect(capturedBenchOpts).toEqual({
       cwd: '/repo',
       think: false,
+      secrets: [],
     });
     expect(output).toContain('ollama');
     expect(output).toContain('qwen2.5-coder:7b');
@@ -437,6 +471,7 @@ describe('preflight CLI bench command', () => {
     expect(code).toBe(0);
     expect(capturedClientOpts?.provider).toBe('groq');
     expect(capturedClientOpts?.model).toBe('llama-3.3-70b-versatile');
+    expect(capturedClientOpts?.timeoutMs).toBe(DEFAULT_CLI_LLM_TIMEOUT_MS);
     expect(capturedBenchOpts).toEqual({
       cwd: '/workspace/app',
       casesDir: path.resolve('/workspace/app', 'custom/cases'),
@@ -446,6 +481,7 @@ describe('preflight CLI bench command', () => {
       limit: 3,
       outDir: path.resolve('/workspace/app', 'bench/results'),
       think: true,
+      secrets: ['test-groq-key'],
     });
     expect(captured.stderr).toEqual([]);
   });
@@ -492,6 +528,7 @@ describe('preflight CLI bench command', () => {
         limit: 10,
         outDir: path.resolve('/repo', 'out-dir'),
         think: true,
+        secrets: [],
       });
       expect(captured.stderr).toEqual([]);
     }
@@ -962,5 +999,283 @@ describe('preflight CLI validation and secret redaction', () => {
     const parsedExplain = JSON.parse(explainJsonRaw) as ExplainResult;
     expect(parsedExplain.verification?.results[0]?.stderr).toContain('[REDACTED]');
     expect(parsedExplain.verification?.results[0]?.stderr).not.toContain(customSecret);
+  });
+
+  it('requires --hook for preflight init and refuses to run without it', async () => {
+    for (const argv of [['init'], ['init', '--force']]) {
+      const captured = createCapturedIo();
+      const installHookFn = vi.fn();
+
+      const code = await runCli(argv, captured.io, {
+        cwd: '/repo',
+        installHookFn,
+      });
+
+      expect(code).toBe(1);
+      expect(installHookFn).not.toHaveBeenCalled();
+      expect(captured.stdout).toEqual([]);
+      expect(captured.stderr.join('\n')).toContain(
+        'Missing required --hook flag for "init"',
+      );
+    }
+  });
+
+  it('rejects incompatible cross-command flags with a clear stderr error and exit 1', async () => {
+    const invalidInvocations: Array<{ argv: string[]; flag: string; cmd: string }> = [
+      { argv: ['check', '--no-verify'], flag: '--no-verify', cmd: 'check' },
+      { argv: ['init', '--hook', '--no-verify'], flag: '--no-verify', cmd: 'init' },
+      { argv: ['bench', '--no-verify'], flag: '--no-verify', cmd: 'bench' },
+      { argv: ['check', '--hook'], flag: '--hook', cmd: 'check' },
+      { argv: ['check', '--force'], flag: '--force', cmd: 'check' },
+      { argv: ['explain', 'ci.log', '--hook'], flag: '--hook', cmd: 'explain' },
+      { argv: ['explain', 'ci.log', '--force'], flag: '--force', cmd: 'explain' },
+      { argv: ['bench', '--hook'], flag: '--hook', cmd: 'bench' },
+      { argv: ['bench', '--force'], flag: '--force', cmd: 'bench' },
+      { argv: ['check', '--cases-dir', 'cases'], flag: '--cases-dir', cmd: 'check' },
+      { argv: ['check', '--case', 'fail-01'], flag: '--case', cmd: 'check' },
+      { argv: ['check', '--status', 'fail'], flag: '--status', cmd: 'check' },
+      { argv: ['check', '--language', 'python'], flag: '--language', cmd: 'check' },
+      { argv: ['check', '--limit', '2'], flag: '--limit', cmd: 'check' },
+      { argv: ['check', '--out', 'out'], flag: '--out', cmd: 'check' },
+      { argv: ['explain', 'ci.log', '--cases-dir', 'cases'], flag: '--cases-dir', cmd: 'explain' },
+      { argv: ['explain', 'ci.log', '--out', 'out'], flag: '--out', cmd: 'explain' },
+      { argv: ['init', '--hook', '--limit', '2'], flag: '--limit', cmd: 'init' },
+      { argv: ['init', '--hook', '--base', 'main'], flag: '--base', cmd: 'init' },
+      { argv: ['init', '--hook', '--log', 'ci.log'], flag: '--log', cmd: 'init' },
+      { argv: ['bench', '--base', 'main'], flag: '--base', cmd: 'bench' },
+      { argv: ['bench', '--log', 'ci.log'], flag: '--log', cmd: 'bench' },
+      { argv: ['explain', 'ci.log', '--log', 'other.log'], flag: '--log', cmd: 'explain' },
+      { argv: ['init', '--hook', '--provider', 'groq'], flag: '--provider', cmd: 'init' },
+      { argv: ['bench', '--timeout', '30'], flag: '--timeout', cmd: 'bench' },
+    ];
+
+    for (const testCase of invalidInvocations) {
+      const captured = createCapturedIo();
+      const code = await runCli(testCase.argv, captured.io, {
+        cwd: '/repo',
+        env: {},
+        createClient: () => {
+          throw new Error('createClient must not be called on incompatible flags');
+        },
+        installHookFn: () => {
+          throw new Error('installHookFn must not be called on incompatible flags');
+        },
+      });
+
+      expect(code).toBe(1);
+      expect(captured.stdout).toEqual([]);
+      const stderr = captured.stderr.join('\n');
+      expect(stderr).toContain(testCase.flag);
+      expect(stderr).toContain(`"${testCase.cmd}"`);
+    }
+  });
+
+  it('passes default 120s LLM timeoutMs when creating CLI clients for check, explain, and bench', async () => {
+    expect(DEFAULT_CLI_LLM_TIMEOUT_MS).toBe(120_000);
+
+    const seenTimeouts: number[] = [];
+    const deps: CliDependencies = {
+      cwd: '/repo',
+      env: {},
+      createClient: (opts) => {
+        if (opts.timeoutMs !== undefined) {
+          seenTimeouts.push(opts.timeoutMs);
+        }
+        return createFakeClient(opts);
+      },
+      runCheckFn: async (_o, _c, meta) => makeCheckReport('passed', meta),
+      runExplainFn: async (o, _c, meta) => makeExplainResult(o.source, meta),
+      runBenchFn: async (_o, _c, meta) => makeBenchReport({}, meta),
+    };
+
+    expect(await runCli(['check'], createCapturedIo().io, deps)).toBe(0);
+    expect(await runCli(['explain', 'ci.log'], createCapturedIo().io, deps)).toBe(0);
+    expect(await runCli(['bench'], createCapturedIo().io, deps)).toBe(0);
+    expect(seenTimeouts).toEqual([120_000, 120_000, 120_000]);
+  });
+
+  it('loads --env-file explicitly without auto-loading target repo .env and redacts secrets loaded from --env-file', async () => {
+    const tempRoot = createCliTempDir('preflight-envfile-');
+    const explicitEnvPath = path.join(tempRoot, 'custom.env');
+    const loadedSecret = 'loaded-env-file-secret-12345';
+    writeFileSync(
+      explicitEnvPath,
+      [
+        'PREFLIGHT_PROVIDER=groq',
+        'PREFLIGHT_MODEL=llama-3.3-70b-versatile',
+        `PREFLIGHT_API_KEY=${loadedSecret}`,
+        'EXISTING_VAR=from-file',
+      ].join('\n'),
+      'utf8',
+    );
+
+    let capturedClientEnv: Record<string, string | undefined> | undefined;
+    const captured = createCapturedIo();
+    const code = await runCli(
+      ['check', '--env-file', 'custom.env'],
+      captured.io,
+      {
+        cwd: tempRoot,
+        env: { EXISTING_VAR: 'from-shell' },
+        createClient: (opts) => {
+          capturedClientEnv = { ...opts.env };
+          return createFakeClient(opts);
+        },
+        runCheckFn: async () => {
+          throw new Error(`Leaked ${loadedSecret}`);
+        },
+      },
+    );
+
+    expect(code).toBe(1);
+    expect(capturedClientEnv?.PREFLIGHT_PROVIDER).toBe('groq');
+    expect(capturedClientEnv?.PREFLIGHT_API_KEY).toBe(loadedSecret);
+    // Existing shell env vars are never overridden by --env-file.
+    expect(capturedClientEnv?.EXISTING_VAR).toBe('from-shell');
+    // Secret loaded from --env-file is redacted from stderr.
+    expect(captured.stderr.join('\n')).toContain('[REDACTED]');
+    expect(captured.stderr.join('\n')).not.toContain(loadedSecret);
+
+    // Rejects missing or whitespace-only --env-file values and missing files.
+    for (const badArgv of [
+      ['check', '--env-file'],
+      ['check', '--env-file='],
+      ['check', '--env-file', '   '],
+      ['check', '--env-file', '--json'],
+    ]) {
+      const badIo = createCapturedIo();
+      expect(await runCli(badArgv, badIo.io, { cwd: tempRoot, env: {} })).toBe(1);
+      expect(badIo.stderr.join('\n')).toContain('Missing value for --env-file');
+    }
+
+    const missingFileIo = createCapturedIo();
+    expect(
+      await runCli(
+        ['check', '--env-file', 'does-not-exist.env'],
+        missingFileIo.io,
+        { cwd: tempRoot, env: {} },
+      ),
+    ).toBe(1);
+    expect(missingFileIo.stderr.join('\n')).toContain('Failed to load env file');
+  });
+
+  it('forwards envSecrets to runBench so --out summary.md and results.json redact custom secrets', async () => {
+    const tempRoot = createCliTempDir('preflight-cli-bench-out-');
+    const casesDir = path.join(tempRoot, 'cases');
+    const outDir = path.join(tempRoot, 'out');
+    mkdirSync(casesDir, { recursive: true });
+    writeFileSync(
+      path.join(casesDir, '01.json'),
+      JSON.stringify({
+        id: 'fail-secret-case',
+        status: 'fail',
+        repo: 'expressjs/express',
+        pr: 1,
+        pr_url: 'https://github.com/expressjs/express/pull/1',
+        language: 'javascript',
+        base_sha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        head_sha: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        workflow_file: '.github/workflows/ci.yml',
+        run_id: 1,
+        run_url: 'https://github.com/expressjs/express/actions/runs/1',
+        failing_job: 'test',
+        failing_command: 'npm run test-ci',
+        log_excerpt: 'Error',
+        changed_files: ['lib/application.js'],
+        root_cause_label: 'unit_test: lib/application.js failed',
+        label_verified: {
+          checked_against_log: true,
+          checked_against_diff: true,
+          notes: 'ok',
+        },
+      }),
+      'utf8',
+    );
+
+    const customSecret = 'cli-bench-out-unprefixed-secret-8888';
+    const captured = createCapturedIo();
+    const code = await runCli(
+      ['bench', '--cases-dir', casesDir, '--out', outDir],
+      captured.io,
+      {
+        cwd: tempRoot,
+        env: { PREFLIGHT_API_KEY: customSecret },
+        createClient: () => ({
+          provider: 'custom',
+          model: 'local-coder',
+          baseUrl: `https://proxy.example.com/v1?x=${customSecret}`,
+          chatCompletion: () =>
+            Promise.reject(new Error(`Upstream blew up with ${customSecret}`)),
+        }),
+        runBenchFn: runBench,
+      },
+    );
+
+    expect(code).toBe(1);
+    const summaryDisk = readFileSync(path.join(outDir, 'summary.md'), 'utf8');
+    const resultsDisk = readFileSync(path.join(outDir, 'results.json'), 'utf8');
+    expect(summaryDisk).not.toContain(customSecret);
+    expect(summaryDisk).toContain('[REDACTED]');
+    expect(resultsDisk).not.toContain(customSecret);
+    expect(resultsDisk).toContain('[REDACTED]');
+  });
+});
+
+describe('loadEnv security isolation', () => {
+  it('resolves user config path via XDG_CONFIG_HOME or ~/.config/preflight/.env and never auto-loads cwd/.env', () => {
+    const tempHome = createCliTempDir('preflight-env-home-');
+    const fakeXdg = path.join(tempHome, 'xdg');
+    const xdgEnvPath = path.join(fakeXdg, 'preflight', '.env');
+    const homeEnvPath = path.join(tempHome, '.config', 'preflight', '.env');
+
+    expect(resolveDefaultEnvPath({ XDG_CONFIG_HOME: fakeXdg }, tempHome)).toBe(
+      xdgEnvPath,
+    );
+    expect(resolveDefaultEnvPath({}, tempHome)).toBe(homeEnvPath);
+
+    // Put a malicious .env in a directory simulating a repo cwd; loadEnv() with no args ignores it.
+    const untrustedRepo = createCliTempDir('preflight-untrusted-repo-');
+    writeFileSync(
+      path.join(untrustedRepo, '.env'),
+      'PREFLIGHT_BASE_URL=https://evil.example/v1\n',
+      'utf8',
+    );
+
+    const emptyHomeEnv: Record<string, string | undefined> = {};
+    loadEnv(undefined, { targetEnv: emptyHomeEnv, homeDir: tempHome });
+    expect(emptyHomeEnv.PREFLIGHT_BASE_URL).toBeUndefined();
+
+    // Loads ~/.config/preflight/.env when present without overriding existing vars.
+    mkdirSync(path.dirname(homeEnvPath), { recursive: true });
+    writeFileSync(
+      homeEnvPath,
+      'PREFLIGHT_PROVIDER=groq\nGROQ_API_KEY=from-user-config\n',
+      'utf8',
+    );
+    const homeTarget: Record<string, string | undefined> = {
+      GROQ_API_KEY: 'already-set-in-shell',
+    };
+    loadEnv(undefined, { targetEnv: homeTarget, homeDir: tempHome });
+    expect(homeTarget.PREFLIGHT_PROVIDER).toBe('groq');
+    expect(homeTarget.GROQ_API_KEY).toBe('already-set-in-shell');
+
+    // Prefers $XDG_CONFIG_HOME/preflight/.env when XDG_CONFIG_HOME is set.
+    mkdirSync(path.dirname(xdgEnvPath), { recursive: true });
+    writeFileSync(xdgEnvPath, 'PREFLIGHT_PROVIDER=cerebras\n', 'utf8');
+    const xdgTarget: Record<string, string | undefined> = {
+      XDG_CONFIG_HOME: fakeXdg,
+    };
+    loadEnv(undefined, { targetEnv: xdgTarget, homeDir: tempHome });
+    expect(xdgTarget.PREFLIGHT_PROVIDER).toBe('cerebras');
+
+    // Loads explicit path when passed and throws if empty or missing.
+    const explicitTarget: Record<string, string | undefined> = {};
+    loadEnv(path.join(untrustedRepo, '.env'), { targetEnv: explicitTarget });
+    expect(explicitTarget.PREFLIGHT_BASE_URL).toBe('https://evil.example/v1');
+
+    expect(() => loadEnv('   ', { targetEnv: {} })).toThrow(/non-empty/i);
+    expect(() =>
+      loadEnv(path.join(tempHome, 'missing.env'), { targetEnv: {} }),
+    ).toThrow(/Failed to load env file/);
   });
 });

@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import {
   chmodSync,
   mkdirSync,
@@ -36,18 +37,90 @@ afterEach(() => {
 });
 
 describe('renderPrePushHookScript', () => {
-  it('renders a POSIX sh script with marker, preflight/npx lookup, exit propagation, and bypass comment', () => {
+  it('renders a POSIX sh script checking PATH and ./node_modules/.bin/preflight with npm link and bypass hints', () => {
     const script = renderPrePushHookScript();
 
     expect(script.startsWith('#!/bin/sh\n')).toBe(true);
     expect(script).toContain(PREFLIGHT_HOOK_MARKER);
     expect(script).toContain('command -v preflight');
     expect(script).toContain('preflight check');
-    expect(script).toContain('npx --no-install preflight check');
+    expect(script).toContain('[ -x ./node_modules/.bin/preflight ]');
+    expect(script).toContain('./node_modules/.bin/preflight check');
+    expect(script).toContain("'npm link' from a local Preflight checkout");
     expect(script).toContain('git push --no-verify');
     expect(script).toContain('exit $?');
-    expect(script).toContain('exit "$status"');
+    expect(script).toContain('exit 1');
+    expect(script).not.toContain('npm install -D preflight');
+    expect(script).not.toContain('npx --no-install');
+    expect(script).not.toContain('-eq 127');
     expect(script.endsWith('\n')).toBe(true);
+  });
+
+  it('prints actionable missing-CLI diagnostic when preflight is absent and executes local node_modules binary when present', () => {
+    const repoDir = createTempDir('preflight-hook-exec-');
+    const emptyBinDir = createTempDir('preflight-empty-bin-');
+    mkdirSync(path.join(repoDir, '.git'));
+    const { hookPath } = installPrePushHook(repoDir);
+
+    // 1. Neither PATH nor ./node_modules/.bin/preflight has preflight -> exits 1 with diagnostic + bypass hint.
+    let missingErr: unknown;
+    try {
+      execFileSync('/bin/sh', [hookPath], {
+        cwd: repoDir,
+        env: { PATH: emptyBinDir },
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (error) {
+      missingErr = error;
+    }
+
+    expect(missingErr).toBeDefined();
+    const failedExec = missingErr as { status?: number; stderr?: string };
+    expect(failedExec.status).toBe(1);
+    expect(failedExec.stderr).toContain('CLI not found');
+    expect(failedExec.stderr).toContain("'npm link' from a local Preflight checkout");
+    expect(failedExec.stderr).toContain('git push --no-verify');
+
+    // 2. Executable ./node_modules/.bin/preflight present -> invoked with "check" and exit code propagated.
+    const localBinDir = path.join(repoDir, 'node_modules', '.bin');
+    mkdirSync(localBinDir, { recursive: true });
+    const localPreflight = path.join(localBinDir, 'preflight');
+    writeFileSync(
+      localPreflight,
+      '#!/bin/sh\necho "local-preflight:$*"\nexit 0\n',
+      { encoding: 'utf8', mode: 0o755 },
+    );
+
+    const stdout = execFileSync('/bin/sh', [hookPath], {
+      cwd: repoDir,
+      env: { PATH: emptyBinDir },
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    expect(stdout.trim()).toBe('local-preflight:check');
+
+    // 3. Local binary exits 1 (failed checks) -> exits 1 without spurious "CLI not found" diagnostic.
+    writeFileSync(
+      localPreflight,
+      '#!/bin/sh\necho "checks failed" >&2\nexit 1\n',
+      { encoding: 'utf8', mode: 0o755 },
+    );
+    let checkFailErr: unknown;
+    try {
+      execFileSync('/bin/sh', [hookPath], {
+        cwd: repoDir,
+        env: { PATH: emptyBinDir },
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (error) {
+      checkFailErr = error;
+    }
+    const failedCheck = checkFailErr as { status?: number; stderr?: string };
+    expect(failedCheck.status).toBe(1);
+    expect(failedCheck.stderr).toContain('checks failed');
+    expect(failedCheck.stderr).not.toContain('CLI not found');
   });
 });
 
