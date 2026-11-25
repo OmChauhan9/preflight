@@ -87,10 +87,7 @@ Because `skills/preflight/SKILL.md` uses standard frontmatter and invokes the st
 
 ## 3. Universal CLI `--json` Contract & Direct Shell Fallback
 
-Per [ADR-004](../DECISIONS.md#adr-004-generic-agent-skill-skillspreflightskillmd--optional-git-pre-push-hook), any coding agent — even one without `SKILL.md` discovery — can invoke Preflight directly via its shell tool.
-
-- **Current v0.1.0 Scaffold Behavior:** `skills/preflight/SKILL.md` runs `preflight check` (with fallbacks to `node dist/cli.js check` and `npx --no-install preflight check`) and reports `stdout`, `stderr`, and the exit code verbatim (currently printing `not implemented` with exit code `0`).
-- **Planned Phase 1–2 JSON Contract:** Once the core pipeline lands, agents invoke:
+Per [ADR-004](../DECISIONS.md#adr-004-generic-agent-skill-skillspreflightskillmd--optional-git-pre-push-hook), any coding agent — even one without `SKILL.md` discovery — can invoke Preflight directly via its shell tool (falling back from `preflight` to `node dist/cli.js` or `npx --no-install preflight` when not globally linked):
 
 ```bash
 # Pre-push verification
@@ -102,17 +99,17 @@ preflight explain <ci-log-url-or-path> --json
 
 ### Agent Decision Rules on `preflight check --json` Output
 
-1. **Verdict Authority:** The agent must inspect `verify.status` (`"these checks passed"` vs `"these checks failed"`) and each item in `verify.results[]` (`command`, `status`, `exit_code`, `duration_ms`, `output_excerpt`).
+1. **Verdict Authority:** The agent must inspect the top-level `verdict` (`'passed' | 'failed' | 'no_checks_run'`), `verdictMessage` (`'these checks passed' | 'these checks failed' | 'no allowlisted checks were executed'`), each item in `verify.results[]` (`command`, `status`, `exitCode`, `durationMs`, `stdout`, `stderr`, and optional `matchedWorkflowCommand` / `refusalReason`), and `verify.refusedCommands[]` (`command`, `reason`).
 2. **Exit Codes:**
-   - Process exit code `0`: All executed allowlisted commands exited with `0`. The agent may proceed with `git push` or PR creation while noting which scoped checks passed.
-   - Non-zero process exit code: One or more executed commands failed or timed out (or Think/Verify encountered a fatal validation error). The agent must fix the reported defect and re-run `preflight check --json` before pushing.
-3. **Invariant Enforcement:** Neither Preflight nor the calling agent may claim `"CI will pass"` — only that the listed scoped checks passed or failed locally.
+   - Process exit code `0`: Either `verdict` is `'passed'` (all executed allowlisted commands exited with `0`) or `verdict` is `'no_checks_run'` (no repository changes were detected or no allowlisted commands could be executed). The agent may proceed with `git push` or PR creation while reporting verbatim which scoped checks passed — or explicitly stating when `no_checks_run` occurred.
+   - Process exit code `1`: `verdict` is `'failed'` (one or more executed allowlisted commands exited non-zero or timed out) or a CLI/validation/network error occurred. The agent must inspect the failing command output, fix the defect, and re-run `preflight check --json` before pushing.
+3. **Invariant Enforcement:** Neither Preflight nor the calling agent may claim `"CI will pass"` — only that the listed allowlisted checks passed, failed, or were not run locally.
 
 ---
 
 ## 4. Optional Git `pre-push` Hook (`preflight init --hook`)
 
-In addition to agent skills, Preflight plans a `preflight init --hook` command in Phase 1 that installs a local Git `pre-push` hook at `.git/hooks/pre-push`.
+In addition to agent skills, Preflight provides the `preflight init --hook` command (supporting `--force` to replace an existing custom hook and `--json` for structured output), which installs an executable Preflight-managed Git `pre-push` hook at `.git/hooks/pre-push` (resolving `.git` directories as well as `gitdir:`/`commondir` pointers in linked worktrees and submodules).
 
 ### How Git Invokes `.git/hooks/pre-push`
 
