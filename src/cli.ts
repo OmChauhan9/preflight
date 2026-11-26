@@ -120,6 +120,7 @@ const ALLOWED_FLAGS_BY_COMMAND: Readonly<
     '--status',
     '--language',
     '--limit',
+    '--delay',
     '--out',
   ]),
 };
@@ -168,6 +169,7 @@ const USAGE = [
   '                         Filter benchmark cases by status (default: all)',
   '  --language <lang>      Filter benchmark cases by language',
   '  --limit <n>            Limit the number of benchmark cases to run',
+  '  --delay <ms>           Delay in milliseconds between benchmark cases (default: 0)',
   '  --out <dir>            Write benchmark summary.md and results.json to directory',
   '  --json                 Emit machine-readable JSON output',
   '  --think                Enable model reasoning mode',
@@ -198,6 +200,7 @@ interface ParsedCliArgs {
   status?: BenchStatusFilter;
   language?: string;
   limit?: number;
+  delayMs?: number;
   outDir?: string;
   json: boolean;
   think: boolean;
@@ -262,6 +265,28 @@ function parsePositiveInt(
   if (!Number.isSafeInteger(parsed) || parsed <= 0) {
     io.stderr(
       `Invalid value for ${flagName}: "${rawValue}". Expected a positive integer.`,
+    );
+    return null;
+  }
+  return parsed;
+}
+
+function parseNonNegativeInt(
+  rawValue: string,
+  flagName: string,
+  io: CliIo,
+): number | null {
+  const trimmed = rawValue.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    io.stderr(
+      `Invalid value for ${flagName}: "${rawValue}". Expected a non-negative integer.`,
+    );
+    return null;
+  }
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    io.stderr(
+      `Invalid value for ${flagName}: "${rawValue}". Expected a non-negative integer.`,
     );
     return null;
   }
@@ -482,6 +507,20 @@ function parseCliArgs(
       continue;
     }
 
+    if (token === '--delay' || token.startsWith('--delay=')) {
+      const read = readFlagValue(argv, i, '--delay', io, true);
+      if (!read.ok) {
+        return null;
+      }
+      const delayMs = parseNonNegativeInt(read.value, '--delay', io);
+      if (delayMs === null) {
+        return null;
+      }
+      parsed.delayMs = delayMs;
+      i = read.nextIndex;
+      continue;
+    }
+
     if (token === '--out' || token.startsWith('--out=')) {
       const read = readFlagValue(argv, i, '--out', io);
       if (!read.ok) {
@@ -556,6 +595,9 @@ function collectProvidedFlags(parsed: ParsedCliArgs): string[] {
   }
   if (parsed.limit !== undefined) {
     flags.push('--limit');
+  }
+  if (parsed.delayMs !== undefined) {
+    flags.push('--delay');
   }
   if (parsed.outDir !== undefined) {
     flags.push('--out');
@@ -810,6 +852,9 @@ export async function runCli(
         }
         if (parsed.limit !== undefined) {
           benchOptions.limit = parsed.limit;
+        }
+        if (parsed.delayMs !== undefined) {
+          benchOptions.delayMs = parsed.delayMs;
         }
         if (parsed.outDir !== undefined) {
           benchOptions.outDir = path.resolve(cwd, parsed.outDir);

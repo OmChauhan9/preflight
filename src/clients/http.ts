@@ -350,7 +350,7 @@ export interface PostChatCompletionParams {
 
 /**
  * Executes an OpenAI-compatible `POST /chat/completions` request through a
- * single-flight queue with HTTP 429 retry and strict secret redaction.
+ * single-flight queue with HTTP 429/503 retry and strict secret redaction.
  */
 export async function postChatCompletion(
   params: PostChatCompletionParams,
@@ -465,7 +465,7 @@ export async function postChatCompletion(
           );
         }
 
-        if (response.status === 429) {
+        if (response.status === 429 || response.status === 503) {
           const rawBody = await response.text().catch(() => '');
           const retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
 
@@ -491,14 +491,15 @@ export async function postChatCompletion(
 
           const safeBody = redactSecrets(truncateSnippet(rawBody), secrets);
           const detail = safeBody ? `: ${safeBody}` : '';
-          throw new LlmHttpError(
-            `${params.provider} rate limited (HTTP 429) after ${maxRetries} retries${detail}`,
-            {
-              provider: params.provider,
-              status: 429,
-              retryAfterMs,
-            },
-          );
+          const message =
+            response.status === 429
+              ? `${params.provider} rate limited (HTTP 429) after ${maxRetries} retries${detail}`
+              : `${params.provider} service unavailable (HTTP 503) after ${maxRetries} retries${detail}`;
+          throw new LlmHttpError(message, {
+            provider: params.provider,
+            status: response.status,
+            retryAfterMs,
+          });
         }
 
         const rawText = await response.text().catch(() => '');
