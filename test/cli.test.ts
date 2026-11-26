@@ -495,7 +495,7 @@ describe('preflight CLI bench command', () => {
       const code = await runCli(
         [
           '--provider=gemini',
-          '--model=gemini-2.5-flash',
+          '--model=gemini-3.5-flash-lite',
           '--cases-dir=cases-alt',
           '--case=pass-01-express-pr-7578',
           `--status=${status.toUpperCase()}`,

@@ -33,7 +33,7 @@ export const PROVIDER_PRESETS: Readonly<Record<ProviderName, ProviderPreset>> = 
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
     requiresApiKey: true,
     apiKeyEnv: 'GEMINI_API_KEY',
-    defaultModel: 'gemini-2.5-flash',
+    defaultModel: 'gemini-3.5-flash-lite',
   },
   openrouter: {
     baseUrl: 'https://openrouter.ai/api/v1',

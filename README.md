@@ -78,7 +78,7 @@ Preflight uses a single provider-agnostic `OpenAICompatibleClient` (`POST {baseU
 | :--- | :--- | :--- | :--- | :--- |
 | **`ollama`** *(default)* | `http://localhost:11434/v1` | `qwen2.5-coder:7b` | `OLLAMA_API_KEY` *(optional)* | **$0 local-first** on your machine via [Ollama](https://ollama.com/) |
 | **`groq`** | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` | `GROQ_API_KEY` | Cloud LPU inference (provider free tier subject to change) |
-| **`gemini`** | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash` | `GEMINI_API_KEY` | Google AI Studio API (provider free tier subject to change) |
+| **`gemini`** | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-3.5-flash-lite` | `GEMINI_API_KEY` | Google AI Studio API (provider free tier subject to change) |
 | **`openrouter`** | `https://openrouter.ai/api/v1` | `qwen/qwen-2.5-coder-32b-instruct:free` | `OPENROUTER_API_KEY` | OpenRouter catalog (`:free` model availability subject to change) |
 | **`openai`** | `https://api.openai.com/v1` | `gpt-4o-mini` | `OPENAI_API_KEY` | Standard OpenAI pay-as-you-go API |
 | **`cerebras`** | `https://api.cerebras.ai/v1` | `llama-3.3-70b` | `CEREBRAS_API_KEY` | Wafer-scale inference with server `time_info` telemetry |

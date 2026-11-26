@@ -122,6 +122,16 @@ describe('provider presets & resolveProviderConfig', () => {
     },
   );
 
+  it('uses gemini-3.5-flash-lite as the default model for the gemini preset', () => {
+    const resolved = resolveProviderConfig(
+      { provider: 'gemini' },
+      { GEMINI_API_KEY: 'AIzaSyTest1234567890' },
+    );
+
+    expect(PROVIDER_PRESETS.gemini.defaultModel).toBe('gemini-3.5-flash-lite');
+    expect(resolved.model).toBe('gemini-3.5-flash-lite');
+  });
+
   it('requires PREFLIGHT_BASE_URL and PREFLIGHT_MODEL for custom provider while keeping apiKey optional', () => {
     expect(() => resolveProviderConfig({ provider: 'custom' }, {})).toThrow(
       /Missing base URL for provider "custom"/,

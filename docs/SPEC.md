@@ -332,7 +332,7 @@ Preflight talks to all inference backends through a single `OpenAICompatibleClie
 | :--- | :--- | :--- | :--- | :--- |
 | **`ollama`** *(default)* | `http://localhost:11434/v1` | `qwen2.5-coder:7b` | `OLLAMA_API_KEY` *(optional)* | None ($0 local daemon; `Authorization` header omitted unless `PREFLIGHT_API_KEY`, `OLLAMA_API_KEY`, or `options.apiKey` is set) |
 | **`groq`** | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` | `GROQ_API_KEY` | Required (`Bearer <key>`) |
-| **`gemini`** | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash` | `GEMINI_API_KEY` | Required (`Bearer <key>`) |
+| **`gemini`** | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-3.5-flash-lite` | `GEMINI_API_KEY` | Required (`Bearer <key>`) |
 | **`openrouter`** | `https://openrouter.ai/api/v1` | `qwen/qwen-2.5-coder-32b-instruct:free` | `OPENROUTER_API_KEY` | Required (`Bearer <key>`) |
 | **`openai`** | `https://api.openai.com/v1` | `gpt-4o-mini` | `OPENAI_API_KEY` | Required (`Bearer <key>`) |
 | **`cerebras`** | `https://api.cerebras.ai/v1` | `llama-3.3-70b` | `CEREBRAS_API_KEY` | Required (`Bearer <key>`) |

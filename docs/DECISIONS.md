@@ -233,7 +233,7 @@ An open-source developer tool should cost **$0** to install, try, and run locall
    - Ship built-in presets for:
      - `ollama` (`http://localhost:11434/v1`, `qwen2.5-coder:7b`, no API key required; optional `OLLAMA_API_KEY`)
      - `groq` (`https://api.groq.com/openai/v1`, `GROQ_API_KEY`, `llama-3.3-70b-versatile`)
-     - `gemini` (`https://generativelanguage.googleapis.com/v1beta/openai`, `GEMINI_API_KEY`, `gemini-2.5-flash`)
+     - `gemini` (`https://generativelanguage.googleapis.com/v1beta/openai`, `GEMINI_API_KEY`, `gemini-3.5-flash-lite`)
      - `openrouter` (`https://openrouter.ai/api/v1`, `OPENROUTER_API_KEY`, `qwen/qwen-2.5-coder-32b-instruct:free`)
      - `openai` (`https://api.openai.com/v1`, `OPENAI_API_KEY`, `gpt-4o-mini`)
      - `cerebras` (`https://api.cerebras.ai/v1`, `CEREBRAS_API_KEY`, `llama-3.3-70b`)

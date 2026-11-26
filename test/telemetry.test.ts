@@ -175,7 +175,7 @@ describe('telemetry computeTelemetry', () => {
 
     const missingUsage = computeTelemetry({
       provider: 'gemini',
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.5-flash-lite',
       base_url: 'https://generativelanguage.googleapis.com/v1beta/openai',
       usage: null,
       time_info: {},

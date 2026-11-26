@@ -29,6 +29,22 @@ function roundOneDecimal(value: number): number {
   return rounded === 0 ? 0 : rounded;
 }
 
+function formatReportCasesDir(cwd: string, resolvedCasesDir: string): string {
+  const resolvedCwd = path.resolve(cwd);
+  const relative = path.relative(resolvedCwd, resolvedCasesDir);
+  if (relative === '') {
+    return '.';
+  }
+  const isOutside =
+    relative === '..' ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative);
+  if (isOutside) {
+    return resolvedCasesDir;
+  }
+  return relative.split(path.sep).join('/');
+}
+
 function serializeRedactedReportJson(
   report: BenchReport,
   secrets: readonly string[] = [],
@@ -228,7 +244,7 @@ export async function runBench(
     model: safeModel,
     baseUrl: safeBaseUrl,
     runTimestamp,
-    casesDir: resolvedCasesDir,
+    casesDir: formatReportCasesDir(options.cwd, resolvedCasesDir),
     metrics,
     cases: results,
   };
@@ -238,13 +254,13 @@ export async function runBench(
     mkdirSync(resolvedOutDir, { recursive: true });
     const summaryPath = path.join(resolvedOutDir, 'summary.md');
     const resultsPath = path.join(resolvedOutDir, 'results.json');
-    report.writtenFiles = { summaryPath, resultsPath };
 
     const summaryMarkdown = `${redactSecrets(renderBenchSummaryMarkdown(report, secrets), secrets)}\n`;
     const resultsJson = serializeRedactedReportJson(report, secrets);
 
     writeFileSync(summaryPath, summaryMarkdown, 'utf8');
     writeFileSync(resultsPath, resultsJson, 'utf8');
+    report.writtenFiles = { summaryPath, resultsPath };
   }
 
   return report;
