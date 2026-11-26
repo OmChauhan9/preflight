@@ -26,7 +26,7 @@ Preflight uses a single `OpenAICompatibleClient` that sends standard `POST {base
 | :--- | :--- | :--- | :--- | :---: |
 | **`ollama`** *(default)* | `http://localhost:11434/v1` | `qwen2.5-coder:7b` | `OLLAMA_API_KEY` *(optional)* | No ($0 local) |
 | **`groq`** | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` | `GROQ_API_KEY` | Yes |
-| **`gemini`** | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash` | `GEMINI_API_KEY` | Yes |
+| **`gemini`** | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-3.5-flash-lite` | `GEMINI_API_KEY` | Yes |
 | **`openrouter`** | `https://openrouter.ai/api/v1` | `qwen/qwen-2.5-coder-32b-instruct:free` | `OPENROUTER_API_KEY` | Yes |
 | **`openai`** | `https://api.openai.com/v1` | `gpt-4o-mini` | `OPENAI_API_KEY` | Yes |
 | **`cerebras`** | `https://api.cerebras.ai/v1` | `llama-3.3-70b` | `CEREBRAS_API_KEY` | Yes |
@@ -74,13 +74,13 @@ Preflight uses a single `OpenAICompatibleClient` that sends standard `POST {base
 
 - **Base URL:** `https://generativelanguage.googleapis.com/v1beta/openai` (Chat Completions endpoint: `POST https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`)
   - *Source:* [Google Gemini API OpenAI Compatibility Guide](https://ai.google.dev/gemini-api/docs/openai)
-- **Default Model:** `gemini-2.5-flash`
+- **Default Model:** `gemini-3.5-flash-lite`
   - *Source:* [Google Gemini Models Documentation](https://ai.google.dev/gemini-api/docs/models)
 - **Authentication:** `Authorization: Bearer <GEMINI_API_KEY>` (API key created in [Google AI Studio](https://aistudio.google.com/apikey))
   - *Source:* [Google Gemini API OpenAI Compatibility Guide](https://ai.google.dev/gemini-api/docs/openai)
 - **Compatibility, Free-Tier & Rate-Limit Notes:**
   - Google AI Studio provides a free tier with RPM/TPM/RPD quotas alongside paid billing tiers; free-tier availability and rate limits vary by model and region and are subject to change by Google.
-  - Google's OpenAI-compatible endpoint supports `POST /v1beta/openai/chat/completions` and maps OpenAI's `reasoning_effort` (`"none"`, `"low"`, `"medium"`, `"high"`) to Gemini 2.5 thinking budgets.
+  - Google's OpenAI-compatible endpoint supports `POST /v1beta/openai/chat/completions` and maps OpenAI's `reasoning_effort` (`"none"`, `"low"`, `"medium"`, `"high"`) to Gemini thinking budgets.
   - *Sources:* [Google Gemini API OpenAI Compatibility Guide](https://ai.google.dev/gemini-api/docs/openai), [Google Gemini API Rate Limits Documentation](https://ai.google.dev/gemini-api/docs/rate-limits)
 
 ### 2.4 `openrouter` (OpenRouter Unified API — `:free` Model Tier Subject to Change)
