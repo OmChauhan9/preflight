@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1033,5 +1033,270 @@ describe('runBench, renderBenchSummaryMarkdown, and formatBenchReport', () => {
     expect(report.cases[1]?.falseAlarm).toBe(false);
     expect(report.metrics.errors).toBe(1);
     expect(report.writtenFiles).toBeUndefined();
+  });
+
+  it('records relative POSIX casesDir and omits machine-local cwd and writtenFiles paths from summary.md and results.json', async () => {
+    const tempRepo = createTempDir('preflight-bench-relpath-');
+    const casesDir = path.join(tempRepo, 'bench', 'cases');
+    mkdirSync(casesDir, { recursive: true });
+    writeFileSync(
+      path.join(casesDir, '01.json'),
+      JSON.stringify(makeSampleFailCase({ id: 'case-relpath-01' })),
+      'utf8',
+    );
+
+    const okPayload: ThinkOutput = {
+      likely_failures: [
+        {
+          category: 'test',
+          target: 'test/app.listRoutes.js',
+          reason: 'Router handling changed in lib/application.js.',
+        },
+      ],
+      affected_jobs: ['test'],
+      commands: ['npm run test-ci'],
+      notes: 'Run express CI tests.',
+    };
+
+    const mockClient: LlmClient = {
+      provider: 'gemini',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      model: 'gemini-3.5-flash-lite',
+      chatCompletion(): Promise<ChatCompletionResult> {
+        return Promise.resolve(makeMockCompletion(JSON.stringify(okPayload)));
+      },
+    };
+
+    const clientMeta: BenchClientMeta = {
+      provider: 'gemini',
+      model: 'gemini-3.5-flash-lite',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    };
+
+    // Default casesDir inside options.cwd -> relative POSIX 'bench/cases'
+    const report = await runBench(
+      {
+        cwd: tempRepo,
+        outDir: 'bench/results',
+      },
+      mockClient,
+      clientMeta,
+    );
+
+    expect(report.casesDir).toBe('bench/cases');
+    expect(report.writtenFiles).toEqual({
+      summaryPath: path.join(tempRepo, 'bench', 'results', 'summary.md'),
+      resultsPath: path.join(tempRepo, 'bench', 'results', 'results.json'),
+    });
+
+    const summaryPath = report.writtenFiles?.summaryPath ?? '';
+    const resultsPath = report.writtenFiles?.resultsPath ?? '';
+    const summaryDisk = readFileSync(summaryPath, 'utf8');
+    const resultsDisk = readFileSync(resultsPath, 'utf8');
+
+    expect(summaryDisk).toContain('- **Cases Directory:** `bench/cases`');
+    expect(summaryDisk).not.toContain(tempRepo);
+    expect(summaryDisk).not.toContain(summaryPath);
+    expect(summaryDisk).not.toContain(resultsPath);
+
+    const parsedJson = JSON.parse(resultsDisk) as Record<string, unknown>;
+    expect(parsedJson.casesDir).toBe('bench/cases');
+    expect('writtenFiles' in parsedJson).toBe(false);
+    expect(resultsDisk).not.toContain(tempRepo);
+    expect(resultsDisk).not.toContain(summaryPath);
+    expect(resultsDisk).not.toContain(resultsPath);
+
+    // Terminal formatter still reports writtenFiles paths returned to runCli
+    const formattedCli = formatBenchReport(report);
+    expect(formattedCli).toContain(summaryPath);
+    expect(formattedCli).toContain(resultsPath);
+
+    // Same directory as options.cwd -> '.'
+    const dotReport = await runBench(
+      {
+        cwd: casesDir,
+        casesDir: '.',
+      },
+      mockClient,
+      clientMeta,
+    );
+    expect(dotReport.casesDir).toBe('.');
+
+    // Outside options.cwd -> keeps resolvedCasesDir
+    const otherCwd = createTempDir('preflight-bench-other-cwd-');
+    const outsideReport = await runBench(
+      {
+        cwd: otherCwd,
+        casesDir,
+      },
+      mockClient,
+      clientMeta,
+    );
+    expect(outsideReport.casesDir).toBe(path.resolve(casesDir));
+  });
+
+  it('sleeps delayMs between consecutive cases without inflating per-case wallTimeMs and skips sleep on 1-case or delayMs=0 runs', async () => {
+    const casesDir = createTempDir('preflight-bench-delay-');
+    writeFileSync(
+      path.join(casesDir, '01.json'),
+      JSON.stringify(makeSampleFailCase({ id: 'delay-case-01', pr: 101 })),
+      'utf8',
+    );
+    writeFileSync(
+      path.join(casesDir, '02.json'),
+      JSON.stringify(makeSampleFailCase({ id: 'delay-case-02', pr: 102 })),
+      'utf8',
+    );
+    writeFileSync(
+      path.join(casesDir, '03.json'),
+      JSON.stringify(makeSamplePassCase({ id: 'delay-case-03', pr: 103 })),
+      'utf8',
+    );
+
+    const events: string[] = [];
+    const recordedDelays: number[] = [];
+    let callIndex = 0;
+
+    const okPayload: ThinkOutput = {
+      likely_failures: [],
+      affected_jobs: ['test'],
+      commands: ['npm run test-ci'],
+      notes: 'Run express CI tests.',
+    };
+
+    const mockClient: LlmClient = {
+      provider: 'gemini',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      model: 'gemini-3.5-flash-lite',
+      chatCompletion(): Promise<ChatCompletionResult> {
+        events.push(`chat:${callIndex}`);
+        callIndex += 1;
+        return Promise.resolve(
+          makeMockCompletion(JSON.stringify(okPayload), { wallTimeMs: 5 }),
+        );
+      },
+    };
+
+    const clientMeta: BenchClientMeta = {
+      provider: 'gemini',
+      model: 'gemini-3.5-flash-lite',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    };
+
+    const sleepFn = async (ms: number): Promise<void> => {
+      events.push(`sleep:${ms}`);
+      recordedDelays.push(ms);
+      // Wait real time inside sleepFn to prove pacing delay does not inflate per-case wallTimeMs.
+      await new Promise<void>((resolve) => setTimeout(resolve, 60));
+    };
+
+    const report = await runBench(
+      {
+        cwd: REPO_ROOT,
+        casesDir,
+        delayMs: 4200,
+        sleepFn,
+      },
+      mockClient,
+      clientMeta,
+    );
+
+    expect(report.cases).toHaveLength(3);
+    expect(recordedDelays).toEqual([4200, 4200]);
+    expect(events).toEqual([
+      'chat:0',
+      'sleep:4200',
+      'chat:1',
+      'sleep:4200',
+      'chat:2',
+    ]);
+    for (const caseResult of report.cases) {
+      expect(caseResult.error).toBeNull();
+      expect(caseResult.wallTimeMs).toBeLessThan(50);
+    }
+
+    // Single-case run must NOT sleep.
+    const singleDelays: number[] = [];
+    const singleReport = await runBench(
+      {
+        cwd: REPO_ROOT,
+        casesDir,
+        limit: 1,
+        delayMs: 4200,
+        sleepFn: async (ms: number) => {
+          singleDelays.push(ms);
+        },
+      },
+      mockClient,
+      clientMeta,
+    );
+    expect(singleReport.cases).toHaveLength(1);
+    expect(singleDelays).toEqual([]);
+
+    // delayMs = 0 must NOT call sleepFn even with multiple cases.
+    const zeroDelays: number[] = [];
+    const zeroReport = await runBench(
+      {
+        cwd: REPO_ROOT,
+        casesDir,
+        delayMs: 0,
+        sleepFn: async (ms: number) => {
+          zeroDelays.push(ms);
+        },
+      },
+      mockClient,
+      clientMeta,
+    );
+    expect(zeroReport.cases).toHaveLength(3);
+    expect(zeroDelays).toEqual([]);
+  });
+
+  it('rejects negative or non-integer delayMs with RangeError', async () => {
+    const casesDir = createTempDir('preflight-bench-delay-invalid-');
+    writeFileSync(
+      path.join(casesDir, '01.json'),
+      JSON.stringify(makeSampleFailCase({ id: 'delay-invalid-01' })),
+      'utf8',
+    );
+
+    let chatCalled = false;
+    const mockClient: LlmClient = {
+      provider: 'gemini',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      model: 'gemini-3.5-flash-lite',
+      chatCompletion(): Promise<ChatCompletionResult> {
+        chatCalled = true;
+        return Promise.reject(new Error('should not be called'));
+      },
+    };
+
+    const clientMeta: BenchClientMeta = {
+      provider: 'gemini',
+      model: 'gemini-3.5-flash-lite',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    };
+
+    for (const invalidDelay of [
+      -1,
+      -500,
+      1.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+    ]) {
+      await expect(
+        runBench(
+          {
+            cwd: REPO_ROOT,
+            casesDir,
+            delayMs: invalidDelay,
+          },
+          mockClient,
+          clientMeta,
+        ),
+      ).rejects.toThrow(RangeError);
+    }
+
+    expect(chatCalled).toBe(false);
   });
 });

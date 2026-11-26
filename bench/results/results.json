@@ -1,0 +1,1252 @@
+{
+  "mode": "triage",
+  "provider": "gemini",
+  "model": "gemini-3.5-flash-lite",
+  "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai",
+  "runTimestamp": "2026-11-26T17:06:10.089Z",
+  "casesDir": "bench/cases",
+  "metrics": {
+    "totalCases": 35,
+    "failedCases": 25,
+    "passingCases": 10,
+    "caught": 15,
+    "commandCaught": 15,
+    "targetCaught": 22,
+    "missed": 10,
+    "falseAlarms": 10,
+    "allowlistRefusals": 3,
+    "errors": 0,
+    "medianWallMs": 2218.9,
+    "p95WallMs": 4344.1,
+    "medianThinkMs": 2218.4,
+    "medianTokPerSec": 93.7
+  },
+  "cases": [
+    {
+      "id": "fail-01-express-pr-7531",
+      "repo": "expressjs/express",
+      "pr": 7531,
+      "language": "javascript",
+      "status": "fail",
+      "caught": false,
+      "commandCaught": false,
+      "targetCaught": true,
+      "falseAlarm": null,
+      "predictedCommands": [
+        "npm test test/app.listRoutes.js"
+      ],
+      "allowedCommands": [
+        "npm test test/app.listRoutes.js"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test"
+      ],
+      "likelyFailureCount": 1,
+      "thinkAttempts": 1,
+      "wallTimeMs": 2322.6,
+      "thinkMs": 2318.6,
+      "tokPerSec": 65.1,
+      "usage": {
+        "prompt_tokens": 874,
+        "completion_tokens": 151,
+        "total_tokens": 1025
+      },
+      "error": null
+    },
+    {
+      "id": "fail-02-express-pr-7112",
+      "repo": "expressjs/express",
+      "pr": 7112,
+      "language": "javascript",
+      "status": "fail",
+      "caught": true,
+      "commandCaught": true,
+      "targetCaught": true,
+      "falseAlarm": null,
+      "predictedCommands": [
+        "npm run test-ci"
+      ],
+      "allowedCommands": [
+        "npm run test-ci"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test"
+      ],
+      "likelyFailureCount": 1,
+      "thinkAttempts": 1,
+      "wallTimeMs": 1554.8,
+      "thinkMs": 1554.1,
+      "tokPerSec": 98.4,
+      "usage": {
+        "prompt_tokens": 994,
+        "completion_tokens": 153,
+        "total_tokens": 1147
+      },
+      "error": null
+    },
+    {
+      "id": "fail-03-express-pr-7561",
+      "repo": "expressjs/express",
+      "pr": 7561,
+      "language": "javascript",
+      "status": "fail",
+      "caught": false,
+      "commandCaught": false,
+      "targetCaught": true,
+      "falseAlarm": null,
+      "predictedCommands": [
+        "npm test test/app.router.js"
+      ],
+      "allowedCommands": [
+        "npm test test/app.router.js"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test"
+      ],
+      "likelyFailureCount": 1,
+      "thinkAttempts": 1,
+      "wallTimeMs": 3497.9,
+      "thinkMs": 3496.5,
+      "tokPerSec": 45.2,
+      "usage": {
+        "prompt_tokens": 862,
+        "completion_tokens": 158,
+        "total_tokens": 1020
+      },
+      "error": null
+    },
+    {
+      "id": "fail-04-zod-pr-6546",
+      "repo": "colinhacks/zod",
+      "pr": 6546,
+      "language": "typescript",
+      "status": "fail",
+      "caught": true,
+      "commandCaught": true,
+      "targetCaught": true,
+      "falseAlarm": null,
+      "predictedCommands": [
+        "pnpm format:check",
+        "pnpm test"
+      ],
+      "allowedCommands": [
+        "pnpm format:check",
+        "pnpm test"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test",
+        "lint"
+      ],
+      "likelyFailureCount": 1,
+      "thinkAttempts": 1,
+      "wallTimeMs": 4007.3,
+      "thinkMs": 4006.4,
+      "tokPerSec": 41.9,
+      "usage": {
+        "prompt_tokens": 1320,
+        "completion_tokens": 168,
+        "total_tokens": 1488
+      },
+      "error": null
+    },
+    {
+      "id": "fail-05-zod-pr-6559",
+      "repo": "colinhacks/zod",
+      "pr": 6559,
+      "language": "typescript",
+      "status": "fail",
+      "caught": true,
+      "commandCaught": true,
+      "targetCaught": false,
+      "falseAlarm": null,
+      "predictedCommands": [
+        "pnpm test",
+        "pnpm format:check"
+      ],
+      "allowedCommands": [
+        "pnpm test",
+        "pnpm format:check"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test",
+        "lint"
+      ],
+      "likelyFailureCount": 2,
+      "thinkAttempts": 1,
+      "wallTimeMs": 2352.5,
+      "thinkMs": 2350.5,
+      "tokPerSec": 128.9,
+      "usage": {
+        "prompt_tokens": 1261,
+        "completion_tokens": 303,
+        "total_tokens": 1564
+      },
+      "error": null
+    },
+    {
+      "id": "fail-06-zod-pr-6588",
+      "repo": "colinhacks/zod",
+      "pr": 6588,
+      "language": "typescript",
+      "status": "fail",
+      "caught": false,
+      "commandCaught": false,
+      "targetCaught": true,
+      "falseAlarm": null,
+      "predictedCommands": [
+        "pnpm test",
+        "pnpm format:check"
+      ],
+      "allowedCommands": [
+        "pnpm test",
+        "pnpm format:check"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test",
+        "lint"
+      ],
+      "likelyFailureCount": 1,
+      "thinkAttempts": 1,
+      "wallTimeMs": 1582.3,
+      "thinkMs": 1581.5,
+      "tokPerSec": 131.5,
+      "usage": {
+        "prompt_tokens": 1267,
+        "completion_tokens": 208,
+        "total_tokens": 1475
+      },
+      "error": null
+    },
+    {
+      "id": "fail-07-zod-pr-6599",
+      "repo": "colinhacks/zod",
+      "pr": 6599,
+      "language": "typescript",
+      "status": "fail",
+      "caught": false,
+      "commandCaught": false,
+      "targetCaught": false,
+      "falseAlarm": null,
+      "predictedCommands": [
+        "pnpm test",
+        "pnpm format:check"
+      ],
+      "allowedCommands": [
+        "pnpm test",
+        "pnpm format:check"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test",
+        "lint"
+      ],
+      "likelyFailureCount": 1,
+      "thinkAttempts": 1,
+      "wallTimeMs": 1849.3,
+      "thinkMs": 1847.8,
+      "tokPerSec": 102.8,
+      "usage": {
+        "prompt_tokens": 1015,
+        "completion_tokens": 190,
+        "total_tokens": 1205
+      },
+      "error": null
+    },
+    {
+      "id": "fail-08-h3-pr-1592",
+      "repo": "unjs/h3",
+      "pr": 1592,
+      "language": "typescript",
+      "status": "fail",
+      "caught": true,
+      "commandCaught": true,
+      "targetCaught": false,
+      "falseAlarm": null,
+      "predictedCommands": [
+        "pnpm vitest run src/utils/base.ts",
+        "pnpm lint"
+      ],
+      "allowedCommands": [
+        "pnpm lint"
+      ],
+      "refusedCommands": [
+        {
+          "command": "pnpm vitest run src/utils/base.ts",
+          "reason": "Command \"pnpm vitest run\" does not match any CI workflow command"
+        }
+      ],
+      "affectedJobs": [
+        "test",
+        "lint"
+      ],
+      "likelyFailureCount": 1,
+      "thinkAttempts": 1,
+      "wallTimeMs": 2009.4,
+      "thinkMs": 2009,
+      "tokPerSec": 83.6,
+      "usage": {
+        "prompt_tokens": 856,
+        "completion_tokens": 168,
+        "total_tokens": 1024
+      },
+      "error": null
+    },
+    {
+      "id": "fail-09-h3-pr-1621",
+      "repo": "unjs/h3",
+      "pr": 1621,
+      "language": "typescript",
+      "status": "fail",
+      "caught": true,
+      "commandCaught": true,
+      "targetCaught": true,
+      "falseAlarm": null,
+      "predictedCommands": [
+        "pnpm vitest --coverage test/cache.test.ts test/rules/cache.test.ts",
+        "pnpm lint"
+      ],
+      "allowedCommands": [
+        "pnpm vitest --coverage test/cache.test.ts test/rules/cache.test.ts",
+        "pnpm lint"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test",
+        "lint"
+      ],
+      "likelyFailureCount": 3,
+      "thinkAttempts": 1,
+      "wallTimeMs": 2218.9,
+      "thinkMs": 2218.4,
+      "tokPerSec": 145.2,
+      "usage": {
+        "prompt_tokens": 877,
+        "completion_tokens": 322,
+        "total_tokens": 1199
+      },
+      "error": null
+    },
+    {
+      "id": "fail-10-werkzeug-pr-3269",
+      "repo": "pallets/werkzeug",
+      "pr": 3269,
+      "language": "python",
+      "status": "fail",
+      "caught": false,
+      "commandCaught": false,
+      "targetCaught": true,
+      "falseAlarm": null,
+      "predictedCommands": [
+        "pytest tests/sansio/test_accept_mimetype_cases.py"
+      ],
+      "allowedCommands": [
+        "pytest tests/sansio/test_accept_mimetype_cases.py"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test"
+      ],
+      "likelyFailureCount": 1,
+      "thinkAttempts": 1,
+      "wallTimeMs": 2092.6,
+      "thinkMs": 2091.6,
+      "tokPerSec": 79.4,
+      "usage": {
+        "prompt_tokens": 925,
+        "completion_tokens": 166,
+        "total_tokens": 1091
+      },
+      "error": null
+    },
+    {
+      "id": "fail-11-werkzeug-pr-3300",
+      "repo": "pallets/werkzeug",
+      "pr": 3300,
+      "language": "python",
+      "status": "fail",
+      "caught": true,
+      "commandCaught": true,
+      "targetCaught": true,
+      "falseAlarm": null,
+      "predictedCommands": [
+        "pytest tests/test_wrappers.py",
+        "uv run --locked --no-default-groups --group dev tox run -e typing"
+      ],
+      "allowedCommands": [
+        "pytest tests/test_wrappers.py",
+        "uv run --locked --no-default-groups --group dev tox run -e typing"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test",
+        "typing"
+      ],
+      "likelyFailureCount": 2,
+      "thinkAttempts": 1,
+      "wallTimeMs": 1935.2,
+      "thinkMs": 1934.5,
+      "tokPerSec": 137,
+      "usage": {
+        "prompt_tokens": 994,
+        "completion_tokens": 265,
+        "total_tokens": 1259
+      },
+      "error": null
+    },
+    {
+      "id": "fail-12-werkzeug-pr-3325",
+      "repo": "pallets/werkzeug",
+      "pr": 3325,
+      "language": "python",
+      "status": "fail",
+      "caught": true,
+      "commandCaught": true,
+      "targetCaught": true,
+      "falseAlarm": null,
+      "predictedCommands": [
+        "pytest tests/test_wrappers.py",
+        "uv run --locked --no-default-groups --group dev tox run -e typing"
+      ],
+      "allowedCommands": [
+        "pytest tests/test_wrappers.py",
+        "uv run --locked --no-default-groups --group dev tox run -e typing"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test",
+        "typing"
+      ],
+      "likelyFailureCount": 1,
+      "thinkAttempts": 1,
+      "wallTimeMs": 2737.5,
+      "thinkMs": 2736.6,
+      "tokPerSec": 74.2,
+      "usage": {
+        "prompt_tokens": 945,
+        "completion_tokens": 203,
+        "total_tokens": 1148
+      },
+      "error": null
+    },
+    {
+      "id": "fail-13-werkzeug-pr-3329",
+      "repo": "pallets/werkzeug",
+      "pr": 3329,
+      "language": "python",
+      "status": "fail",
+      "caught": true,
+      "commandCaught": true,
+      "targetCaught": true,
+      "falseAlarm": null,
+      "predictedCommands": [
+        "uv run --locked --no-default-groups --group dev tox run -e typing",
+        "pytest"
+      ],
+      "allowedCommands": [
+        "uv run --locked --no-default-groups --group dev tox run -e typing",
+        "pytest"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "typing",
+        "test"
+      ],
+      "likelyFailureCount": 2,
+      "thinkAttempts": 1,
+      "wallTimeMs": 2169,
+      "thinkMs": 2168.4,
+      "tokPerSec": 113.5,
+      "usage": {
+        "prompt_tokens": 935,
+        "completion_tokens": 246,
+        "total_tokens": 1181
+      },
+      "error": null
+    },
+    {
+      "id": "fail-14-jinja-pr-2264",
+      "repo": "pallets/jinja",
+      "pr": 2264,
+      "language": "python",
+      "status": "fail",
+      "caught": true,
+      "commandCaught": true,
+      "targetCaught": true,
+      "falseAlarm": null,
+      "predictedCommands": [
+        "pytest tests/test_lexnparse.py",
+        "uv run --locked tox run -e typing"
+      ],
+      "allowedCommands": [
+        "pytest tests/test_lexnparse.py",
+        "uv run --locked tox run -e typing"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test",
+        "typing"
+      ],
+      "likelyFailureCount": 2,
+      "thinkAttempts": 1,
+      "wallTimeMs": 5697.1,
+      "thinkMs": 5696.4,
+      "tokPerSec": 48.3,
+      "usage": {
+        "prompt_tokens": 910,
+        "completion_tokens": 275,
+        "total_tokens": 1185
+      },
+      "error": null
+    },
+    {
+      "id": "fail-15-click-pr-3874",
+      "repo": "pallets/click",
+      "pr": 3874,
+      "language": "python",
+      "status": "fail",
+      "caught": false,
+      "commandCaught": false,
+      "targetCaught": true,
+      "falseAlarm": null,
+      "predictedCommands": [
+        "pytest tests/test_termui.py",
+        "uv run --locked --no-default-groups --group dev tox run -e typing"
+      ],
+      "allowedCommands": [
+        "pytest tests/test_termui.py",
+        "uv run --locked --no-default-groups --group dev tox run -e typing"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test",
+        "typing"
+      ],
+      "likelyFailureCount": 2,
+      "thinkAttempts": 1,
+      "wallTimeMs": 2063.2,
+      "thinkMs": 2062.1,
+      "tokPerSec": 142.6,
+      "usage": {
+        "prompt_tokens": 928,
+        "completion_tokens": 294,
+        "total_tokens": 1222
+      },
+      "error": null
+    },
+    {
+      "id": "fail-16-httpx-pr-3835",
+      "repo": "encode/httpx",
+      "pr": 3835,
+      "language": "python",
+      "status": "fail",
+      "caught": true,
+      "commandCaught": true,
+      "targetCaught": true,
+      "falseAlarm": null,
+      "predictedCommands": [
+        "scripts/test",
+        "scripts/check",
+        "pytest"
+      ],
+      "allowedCommands": [
+        "scripts/test",
+        "scripts/check",
+        "pytest"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test",
+        "lint"
+      ],
+      "likelyFailureCount": 2,
+      "thinkAttempts": 1,
+      "wallTimeMs": 3264.1,
+      "thinkMs": 3263.6,
+      "tokPerSec": 78.4,
+      "usage": {
+        "prompt_tokens": 900,
+        "completion_tokens": 256,
+        "total_tokens": 1156
+      },
+      "error": null
+    },
+    {
+      "id": "fail-17-httpx-pr-3845",
+      "repo": "encode/httpx",
+      "pr": 3845,
+      "language": "python",
+      "status": "fail",
+      "caught": true,
+      "commandCaught": true,
+      "targetCaught": true,
+      "falseAlarm": null,
+      "predictedCommands": [
+        "pytest tests/models/test_url.py",
+        "scripts/check"
+      ],
+      "allowedCommands": [
+        "pytest tests/models/test_url.py",
+        "scripts/check"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test",
+        "lint"
+      ],
+      "likelyFailureCount": 1,
+      "thinkAttempts": 1,
+      "wallTimeMs": 2213.6,
+      "thinkMs": 2213,
+      "tokPerSec": 79.5,
+      "usage": {
+        "prompt_tokens": 885,
+        "completion_tokens": 176,
+        "total_tokens": 1061
+      },
+      "error": null
+    },
+    {
+      "id": "fail-18-pydantic-settings-pr-1051",
+      "repo": "pydantic/pydantic-settings",
+      "pr": 1051,
+      "language": "python",
+      "status": "fail",
+      "caught": true,
+      "commandCaught": true,
+      "targetCaught": true,
+      "falseAlarm": null,
+      "predictedCommands": [
+        "pytest tests/test_settings.py",
+        "pre-commit run --show-diff-on-failure --color=always --all-files"
+      ],
+      "allowedCommands": [
+        "pytest tests/test_settings.py",
+        "pre-commit run --show-diff-on-failure --color=always --all-files"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test",
+        "lint"
+      ],
+      "likelyFailureCount": 2,
+      "thinkAttempts": 1,
+      "wallTimeMs": 2946.1,
+      "thinkMs": 2945.3,
+      "tokPerSec": 93.7,
+      "usage": {
+        "prompt_tokens": 919,
+        "completion_tokens": 276,
+        "total_tokens": 1195
+      },
+      "error": null
+    },
+    {
+      "id": "fail-19-pydantic-settings-pr-1070",
+      "repo": "pydantic/pydantic-settings",
+      "pr": 1070,
+      "language": "python",
+      "status": "fail",
+      "caught": false,
+      "commandCaught": false,
+      "targetCaught": true,
+      "falseAlarm": null,
+      "predictedCommands": [
+        "pytest tests/test_source_nested_secrets.py",
+        "pre-commit run --show-diff-on-failure --color=always --all-files"
+      ],
+      "allowedCommands": [
+        "pytest tests/test_source_nested_secrets.py",
+        "pre-commit run --show-diff-on-failure --color=always --all-files"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test",
+        "lint"
+      ],
+      "likelyFailureCount": 2,
+      "thinkAttempts": 1,
+      "wallTimeMs": 4258.8,
+      "thinkMs": 4258.1,
+      "tokPerSec": 71.6,
+      "usage": {
+        "prompt_tokens": 945,
+        "completion_tokens": 305,
+        "total_tokens": 1250
+      },
+      "error": null
+    },
+    {
+      "id": "fail-20-pydantic-settings-pr-1080",
+      "repo": "pydantic/pydantic-settings",
+      "pr": 1080,
+      "language": "python",
+      "status": "fail",
+      "caught": true,
+      "commandCaught": true,
+      "targetCaught": true,
+      "falseAlarm": null,
+      "predictedCommands": [
+        "pytest tests/test_source_azure_key_vault.py",
+        "pre-commit run --show-diff-on-failure --color=always --all-files"
+      ],
+      "allowedCommands": [
+        "pytest tests/test_source_azure_key_vault.py",
+        "pre-commit run --show-diff-on-failure --color=always --all-files"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test",
+        "lint"
+      ],
+      "likelyFailureCount": 2,
+      "thinkAttempts": 1,
+      "wallTimeMs": 3041.2,
+      "thinkMs": 3039.9,
+      "tokPerSec": 100.7,
+      "usage": {
+        "prompt_tokens": 932,
+        "completion_tokens": 306,
+        "total_tokens": 1238
+      },
+      "error": null
+    },
+    {
+      "id": "fail-21-pydantic-settings-pr-1092",
+      "repo": "pydantic/pydantic-settings",
+      "pr": 1092,
+      "language": "python",
+      "status": "fail",
+      "caught": false,
+      "commandCaught": false,
+      "targetCaught": true,
+      "falseAlarm": null,
+      "predictedCommands": [
+        "pytest tests/test_settings.py",
+        "pre-commit run --show-diff-on-failure --color=always --files pydantic_settings/sources/base.py tests/test_settings.py"
+      ],
+      "allowedCommands": [
+        "pytest tests/test_settings.py"
+      ],
+      "refusedCommands": [
+        {
+          "command": "pre-commit run --show-diff-on-failure --color=always --files pydantic_settings/sources/base.py tests/test_settings.py",
+          "reason": "Disallowed flag \"--files\" (not present in CI workflow command or scoping allowlist)"
+        }
+      ],
+      "affectedJobs": [
+        "test",
+        "lint"
+      ],
+      "likelyFailureCount": 1,
+      "thinkAttempts": 1,
+      "wallTimeMs": 1199.7,
+      "thinkMs": 1198.8,
+      "tokPerSec": 173.5,
+      "usage": {
+        "prompt_tokens": 919,
+        "completion_tokens": 208,
+        "total_tokens": 1127
+      },
+      "error": null
+    },
+    {
+      "id": "fail-22-pydantic-settings-pr-1110",
+      "repo": "pydantic/pydantic-settings",
+      "pr": 1110,
+      "language": "python",
+      "status": "fail",
+      "caught": true,
+      "commandCaught": true,
+      "targetCaught": true,
+      "falseAlarm": null,
+      "predictedCommands": [
+        "pytest tests/test_settings.py",
+        "pre-commit run --show-diff-on-failure --color=always --all-files"
+      ],
+      "allowedCommands": [
+        "pytest tests/test_settings.py",
+        "pre-commit run --show-diff-on-failure --color=always --all-files"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test",
+        "lint"
+      ],
+      "likelyFailureCount": 2,
+      "thinkAttempts": 1,
+      "wallTimeMs": 3983.4,
+      "thinkMs": 3983,
+      "tokPerSec": 68.3,
+      "usage": {
+        "prompt_tokens": 908,
+        "completion_tokens": 272,
+        "total_tokens": 1180
+      },
+      "error": null
+    },
+    {
+      "id": "fail-23-pydantic-settings-pr-1138",
+      "repo": "pydantic/pydantic-settings",
+      "pr": 1138,
+      "language": "python",
+      "status": "fail",
+      "caught": false,
+      "commandCaught": false,
+      "targetCaught": true,
+      "falseAlarm": null,
+      "predictedCommands": [
+        "pytest tests/test_settings.py",
+        "pre-commit run --show-diff-on-failure --color=always --all-files"
+      ],
+      "allowedCommands": [
+        "pytest tests/test_settings.py",
+        "pre-commit run --show-diff-on-failure --color=always --all-files"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test",
+        "lint"
+      ],
+      "likelyFailureCount": 1,
+      "thinkAttempts": 1,
+      "wallTimeMs": 988.1,
+      "thinkMs": 987.7,
+      "tokPerSec": 185.3,
+      "usage": {
+        "prompt_tokens": 910,
+        "completion_tokens": 183,
+        "total_tokens": 1093
+      },
+      "error": null
+    },
+    {
+      "id": "fail-24-pydantic-settings-pr-1140",
+      "repo": "pydantic/pydantic-settings",
+      "pr": 1140,
+      "language": "python",
+      "status": "fail",
+      "caught": false,
+      "commandCaught": false,
+      "targetCaught": true,
+      "falseAlarm": null,
+      "predictedCommands": [
+        "pytest tests/test_source_cli.py",
+        "pre-commit run --show-diff-on-failure --color=always --all-files"
+      ],
+      "allowedCommands": [
+        "pytest tests/test_source_cli.py",
+        "pre-commit run --show-diff-on-failure --color=always --all-files"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test",
+        "lint"
+      ],
+      "likelyFailureCount": 2,
+      "thinkAttempts": 1,
+      "wallTimeMs": 1208.8,
+      "thinkMs": 1208.5,
+      "tokPerSec": 241.6,
+      "usage": {
+        "prompt_tokens": 913,
+        "completion_tokens": 292,
+        "total_tokens": 1205
+      },
+      "error": null
+    },
+    {
+      "id": "fail-25-pydantic-settings-pr-1147",
+      "repo": "pydantic/pydantic-settings",
+      "pr": 1147,
+      "language": "python",
+      "status": "fail",
+      "caught": true,
+      "commandCaught": true,
+      "targetCaught": true,
+      "falseAlarm": null,
+      "predictedCommands": [
+        "pytest tests/test_source_cli.py tests/test_settings.py",
+        "pre-commit run --show-diff-on-failure --color=always --all-files"
+      ],
+      "allowedCommands": [
+        "pytest tests/test_source_cli.py tests/test_settings.py",
+        "pre-commit run --show-diff-on-failure --color=always --all-files"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test",
+        "lint"
+      ],
+      "likelyFailureCount": 2,
+      "thinkAttempts": 1,
+      "wallTimeMs": 2731.1,
+      "thinkMs": 2729.7,
+      "tokPerSec": 108.8,
+      "usage": {
+        "prompt_tokens": 1085,
+        "completion_tokens": 297,
+        "total_tokens": 1382
+      },
+      "error": null
+    },
+    {
+      "id": "pass-01-express-pr-7578",
+      "repo": "expressjs/express",
+      "pr": 7578,
+      "language": "javascript",
+      "status": "pass",
+      "caught": null,
+      "commandCaught": null,
+      "targetCaught": null,
+      "falseAlarm": true,
+      "predictedCommands": [
+        "npm test test/res.links.js",
+        "npm run lint"
+      ],
+      "allowedCommands": [
+        "npm test test/res.links.js",
+        "npm run lint"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test",
+        "lint"
+      ],
+      "likelyFailureCount": 2,
+      "thinkAttempts": 1,
+      "wallTimeMs": 1405.7,
+      "thinkMs": 1405.2,
+      "tokPerSec": 174.4,
+      "usage": {
+        "prompt_tokens": 878,
+        "completion_tokens": 245,
+        "total_tokens": 1123
+      },
+      "error": null
+    },
+    {
+      "id": "pass-02-zod-pr-6768",
+      "repo": "colinhacks/zod",
+      "pr": 6768,
+      "language": "typescript",
+      "status": "pass",
+      "caught": null,
+      "commandCaught": null,
+      "targetCaught": null,
+      "falseAlarm": true,
+      "predictedCommands": [
+        "pnpm test packages/zod/src/v4/classic/tests/cyclic-data.test.ts",
+        "pnpm format:check"
+      ],
+      "allowedCommands": [
+        "pnpm test packages/zod/src/v4/classic/tests/cyclic-data.test.ts",
+        "pnpm format:check"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test"
+      ],
+      "likelyFailureCount": 1,
+      "thinkAttempts": 1,
+      "wallTimeMs": 1169.9,
+      "thinkMs": 1169.5,
+      "tokPerSec": 172.7,
+      "usage": {
+        "prompt_tokens": 927,
+        "completion_tokens": 202,
+        "total_tokens": 1129
+      },
+      "error": null
+    },
+    {
+      "id": "pass-03-h3-pr-1636",
+      "repo": "unjs/h3",
+      "pr": 1636,
+      "language": "typescript",
+      "status": "pass",
+      "caught": null,
+      "commandCaught": null,
+      "targetCaught": null,
+      "falseAlarm": true,
+      "predictedCommands": [
+        "pnpm vitest run",
+        "pnpm lint"
+      ],
+      "allowedCommands": [
+        "pnpm lint"
+      ],
+      "refusedCommands": [
+        {
+          "command": "pnpm vitest run",
+          "reason": "Command \"pnpm vitest run\" does not match any CI workflow command"
+        }
+      ],
+      "affectedJobs": [
+        "test",
+        "lint"
+      ],
+      "likelyFailureCount": 2,
+      "thinkAttempts": 1,
+      "wallTimeMs": 1727,
+      "thinkMs": 1726.7,
+      "tokPerSec": 135.5,
+      "usage": {
+        "prompt_tokens": 1152,
+        "completion_tokens": 234,
+        "total_tokens": 1386
+      },
+      "error": null
+    },
+    {
+      "id": "pass-04-fastify-pr-7239",
+      "repo": "fastify/fastify",
+      "pr": 7239,
+      "language": "javascript",
+      "status": "pass",
+      "caught": null,
+      "commandCaught": null,
+      "targetCaught": null,
+      "falseAlarm": true,
+      "predictedCommands": [
+        "npm test test/http2/on-timeout.test.js",
+        "npm run lint"
+      ],
+      "allowedCommands": [
+        "npm test test/http2/on-timeout.test.js",
+        "npm run lint"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test",
+        "lint"
+      ],
+      "likelyFailureCount": 2,
+      "thinkAttempts": 1,
+      "wallTimeMs": 3452.2,
+      "thinkMs": 3452,
+      "tokPerSec": 72.1,
+      "usage": {
+        "prompt_tokens": 896,
+        "completion_tokens": 249,
+        "total_tokens": 1145
+      },
+      "error": null
+    },
+    {
+      "id": "pass-05-axios-pr-11371",
+      "repo": "axios/axios",
+      "pr": 11371,
+      "language": "javascript",
+      "status": "pass",
+      "caught": null,
+      "commandCaught": null,
+      "targetCaught": null,
+      "falseAlarm": true,
+      "predictedCommands": [
+        "npm test",
+        "npm run lint"
+      ],
+      "allowedCommands": [
+        "npm test",
+        "npm run lint"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test",
+        "lint"
+      ],
+      "likelyFailureCount": 2,
+      "thinkAttempts": 1,
+      "wallTimeMs": 4344.1,
+      "thinkMs": 4343.7,
+      "tokPerSec": 52.7,
+      "usage": {
+        "prompt_tokens": 871,
+        "completion_tokens": 229,
+        "total_tokens": 1100
+      },
+      "error": null
+    },
+    {
+      "id": "pass-06-werkzeug-pr-3345",
+      "repo": "pallets/werkzeug",
+      "pr": 3345,
+      "language": "python",
+      "status": "pass",
+      "caught": null,
+      "commandCaught": null,
+      "targetCaught": null,
+      "falseAlarm": true,
+      "predictedCommands": [
+        "pytest tests/test_test.py"
+      ],
+      "allowedCommands": [
+        "pytest tests/test_test.py"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test",
+        "typing"
+      ],
+      "likelyFailureCount": 1,
+      "thinkAttempts": 1,
+      "wallTimeMs": 2410.7,
+      "thinkMs": 2410.4,
+      "tokPerSec": 73.4,
+      "usage": {
+        "prompt_tokens": 938,
+        "completion_tokens": 177,
+        "total_tokens": 1115
+      },
+      "error": null
+    },
+    {
+      "id": "pass-07-jinja-pr-2277",
+      "repo": "pallets/jinja",
+      "pr": 2277,
+      "language": "python",
+      "status": "pass",
+      "caught": null,
+      "commandCaught": null,
+      "targetCaught": null,
+      "falseAlarm": true,
+      "predictedCommands": [
+        "pytest tests/test_filters.py",
+        "uv run --locked tox run -e typing"
+      ],
+      "allowedCommands": [
+        "pytest tests/test_filters.py",
+        "uv run --locked tox run -e typing"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test",
+        "typing"
+      ],
+      "likelyFailureCount": 2,
+      "thinkAttempts": 1,
+      "wallTimeMs": 3280.9,
+      "thinkMs": 3280.5,
+      "tokPerSec": 83.8,
+      "usage": {
+        "prompt_tokens": 900,
+        "completion_tokens": 275,
+        "total_tokens": 1175
+      },
+      "error": null
+    },
+    {
+      "id": "pass-08-click-pr-3924",
+      "repo": "pallets/click",
+      "pr": 3924,
+      "language": "python",
+      "status": "pass",
+      "caught": null,
+      "commandCaught": null,
+      "targetCaught": null,
+      "falseAlarm": true,
+      "predictedCommands": [
+        "uv run --locked --no-default-groups --group dev tox run",
+        "uv run --locked --no-default-groups --group dev tox run -e typing",
+        "pytest"
+      ],
+      "allowedCommands": [
+        "uv run --locked --no-default-groups --group dev tox run",
+        "uv run --locked --no-default-groups --group dev tox run -e typing",
+        "pytest"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test",
+        "typing"
+      ],
+      "likelyFailureCount": 2,
+      "thinkAttempts": 1,
+      "wallTimeMs": 3121.2,
+      "thinkMs": 3120.9,
+      "tokPerSec": 87.2,
+      "usage": {
+        "prompt_tokens": 1240,
+        "completion_tokens": 272,
+        "total_tokens": 1512
+      },
+      "error": null
+    },
+    {
+      "id": "pass-09-httpx-pr-3847",
+      "repo": "encode/httpx",
+      "pr": 3847,
+      "language": "python",
+      "status": "pass",
+      "caught": null,
+      "commandCaught": null,
+      "targetCaught": null,
+      "falseAlarm": true,
+      "predictedCommands": [
+        "pytest tests/test_urlparse.py",
+        "scripts/check"
+      ],
+      "allowedCommands": [
+        "pytest tests/test_urlparse.py",
+        "scripts/check"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test",
+        "lint"
+      ],
+      "likelyFailureCount": 1,
+      "thinkAttempts": 1,
+      "wallTimeMs": 2187.7,
+      "thinkMs": 2187.4,
+      "tokPerSec": 80,
+      "usage": {
+        "prompt_tokens": 865,
+        "completion_tokens": 175,
+        "total_tokens": 1040
+      },
+      "error": null
+    },
+    {
+      "id": "pass-10-pydantic-settings-pr-1163",
+      "repo": "pydantic/pydantic-settings",
+      "pr": 1163,
+      "language": "python",
+      "status": "pass",
+      "caught": null,
+      "commandCaught": null,
+      "targetCaught": null,
+      "falseAlarm": true,
+      "predictedCommands": [
+        "pytest tests/test_source_cli.py",
+        "pre-commit run --show-diff-on-failure --color=always --all-files"
+      ],
+      "allowedCommands": [
+        "pytest tests/test_source_cli.py",
+        "pre-commit run --show-diff-on-failure --color=always --all-files"
+      ],
+      "refusedCommands": [],
+      "affectedJobs": [
+        "test",
+        "lint"
+      ],
+      "likelyFailureCount": 1,
+      "thinkAttempts": 1,
+      "wallTimeMs": 1428.2,
+      "thinkMs": 1427.9,
+      "tokPerSec": 145.7,
+      "usage": {
+        "prompt_tokens": 924,
+        "completion_tokens": 208,
+        "total_tokens": 1132
+      },
+      "error": null
+    }
+  ]
+}

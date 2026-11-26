@@ -183,6 +183,7 @@ Built on TypeScript + Node 22 (`>=22`). All four CLI commands are implemented in
 | `--status <fail\|pass\|all>` | `bench` | Filter benchmark cases by status (default: `all`). |
 | `--language <lang>` | `bench` | Filter benchmark cases by language (`javascript`, `typescript`, `python`). |
 | `--limit <n>` | `bench` | Limit the number of benchmark cases to run. |
+| `--delay <ms>` | `bench` | Delay in milliseconds between benchmark cases (default: `0`). |
 | `--out <dir>` | `bench` | Write benchmark `summary.md` and `results.json` to directory. |
 | `--json` | all commands | Emit machine-readable, secret-redacted JSON output containing stage results, command exit codes, and Speed/Telemetry metrics. |
 | `--think` | `check`, `explain`, `bench` | Opt in to enable model reasoning mode during the Think / Explain call (sends `reasoning_effort: "low"`; adds `reasoning_format: "parsed"` only on `groq` and `cerebras`). |
@@ -314,11 +315,19 @@ Evaluated sequentially across `bench/cases/*.json` using symmetric per-repo CI w
 1. **Local Checkout Reproduction & Exit-Code Verification:** On locally checked-out benchmark commits (`head_sha`, such as the two `<1s` anchor reproductions in [`bench/REPRO.md`](../bench/REPRO.md)), executing Verify's allowlisted commands to measure real non-zero exit-code catch rate on failed-CI cases and clean pass rate on passing-CI cases.
 2. **Root-Cause Explanation Accuracy (`preflight explain`):** Offline evaluation running `preflight explain` on failed-CI logs to verify whether `root_cause` identifies the same file, symbol, and defect documented in `root_cause_label`.
 
-### 5.4 Benchmark Honesty Rule
+### 5.4 Benchmark Honesty Rule & Published Live Triage Run
 
 - Every case label in `bench/cases/` is verified against **both** the actual GitHub Actions failure log and the exact commit diff (`base_sha..head_sha` at the time CI failed, even if the PR was later amended and merged).
 - Two failed-CI benchmark cases (`fail-01-express-pr-7531` and `fail-10-werkzeug-pr-3269`) have been reproduced end-to-end locally in [`bench/REPRO.md`](../bench/REPRO.md) to validate `<1s` scoped command execution.
-- Never fabricate, extrapolate, or cherry-pick benchmark numbers. `preflight bench` is implemented and unit-tested (`src/bench/`), while live LLM benchmark runs (`preflight bench --out bench/results`) against local Ollama and cloud providers have not yet been executed. Live benchmark scores will be reported only from actual live runs, always stating exact denominators and distinguishing static `mode: triage` evaluation across all 35 cases from full local checkout command execution.
+- **Honesty Rule:** Never fabricate, extrapolate, or cherry-pick benchmark numbers. Report scores only from committed live runs, always stating exact denominators, surfacing misses, false alarms, and allowlist refusals verbatim, and explicitly distinguishing static `mode: triage` evaluation across all 35 cases from full local checkout subprocess execution.
+- **Published Live Run (`gemini / gemini-3.5-flash-lite`, `mode: triage`):** Recorded on `2026-11-26T17:06:10.089Z` via `node dist/cli.js bench --provider gemini --delay 4200 --out bench/results` (Gemini Free Tier, `$0`, base URL `https://generativelanguage.googleapis.com/v1beta/openai`) and archived verbatim in [`bench/results/summary.md`](../bench/results/summary.md) and [`bench/results/results.json`](../bench/results/results.json):
+  - **Cases:** `35` total (`25` failed, `10` passing across 10 JS/TS & Python repos)
+  - **Caught (exact allowlisted failing CI command):** `15 / 25` (`60.0%`) — `typecheck`: `5 / 5` (`100.0%`), `lint_format`: `7 / 7` (`100.0%`), `unit_test`: `3 / 13` (`23.1%`) exact CI wrapper matches (`fail-02`, `fail-09`, `fail-16`); on all 10 remaining `unit_test` cases (`fail-01`, `fail-03`, `fail-06`, `fail-07`, `fail-10`, `fail-15`, `fail-19`, `fail-21`, `fail-23`, `fail-24`), the model selected an allowlisted scoped underlying test runner (e.g., `npm test test/app.listRoutes.js`, `pnpm test`, `pytest tests/sansio/test_accept_mimetype_cases.py`, `pytest tests/test_source_cli.py`) rather than the CI wrapper (`npm run test-ci`, `nub run test`, `uv run ... tox run`, `make test`).
+  - **Target Hit (diagnostic, grounded in `root_cause_label`):** `22 / 25` (`88.0%`) (`12 / 13` `unit_test`, `5 / 5` `typecheck`, `5 / 7` `lint_format`)
+  - **Missed:** `10 / 25` (`40.0%`)
+  - **Static-Triage False Alarms (`passingCases`, `likely_failures.length > 0` without diff hunks or command execution):** `10 / 10` (`100.0%`) — directly illustrating why Preflight's Core Invariant computes pass/fail verdicts 100% from real subprocess exit codes, never LLM triage predictions alone.
+  - **Allowlist Refusals / Errors:** `3` refusals across 35 cases (`fail-08`, `fail-21`, `pass-03`), `0` errors.
+  - **Latency & Throughput:** Median wall `2,218.9 ms` (`p95`: `4,344.1 ms`), median think `2,218.4 ms`, median `93.7 tok/s`.
 
 ---
 
@@ -332,7 +341,7 @@ Preflight talks to all inference backends through a single `OpenAICompatibleClie
 | :--- | :--- | :--- | :--- | :--- |
 | **`ollama`** *(default)* | `http://localhost:11434/v1` | `qwen2.5-coder:7b` | `OLLAMA_API_KEY` *(optional)* | None ($0 local daemon; `Authorization` header omitted unless `PREFLIGHT_API_KEY`, `OLLAMA_API_KEY`, or `options.apiKey` is set) |
 | **`groq`** | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` | `GROQ_API_KEY` | Required (`Bearer <key>`) |
-| **`gemini`** | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash` | `GEMINI_API_KEY` | Required (`Bearer <key>`) |
+| **`gemini`** | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-3.5-flash-lite` | `GEMINI_API_KEY` | Required (`Bearer <key>`) |
 | **`openrouter`** | `https://openrouter.ai/api/v1` | `qwen/qwen-2.5-coder-32b-instruct:free` | `OPENROUTER_API_KEY` | Required (`Bearer <key>`) |
 | **`openai`** | `https://api.openai.com/v1` | `gpt-4o-mini` | `OPENAI_API_KEY` | Required (`Bearer <key>`) |
 | **`cerebras`** | `https://api.cerebras.ai/v1` | `llama-3.3-70b` | `CEREBRAS_API_KEY` | Required (`Bearer <key>`) |
@@ -346,7 +355,7 @@ Preflight talks to all inference backends through a single `OpenAICompatibleClie
 | **Concurrency** | **Single-flight (`concurrency = 1`)** per process via an internal FIFO mutex queue so sequential or benchmark calls never flood local hardware or free-tier cloud rate limits. |
 | **Input Context Budget** | **`<= 20,000` estimated context tokens** (`chars / 4`, `~20K` prompt tokens) per call via deterministic priority trimming in 5-tier order (+ optional `recent_ci_log` after `git diff` when `--log` is provided): (1) `git diff` (+ optional `recent_ci_log`), (2) CI commands, (3) changed files' tests, (4) changed files, (5) neighbors — trimmed in reverse priority order. |
 | **Output Token Cap** | **`max_completion_tokens: ~1,500`** (`<= 2,000`), preventing runaway completions and respecting providers that pre-charge `max_completion_tokens` against per-minute token quotas. |
-| **HTTP 429 Handling** | Honor `Retry-After` response header (delta-seconds or HTTP-date) when present; otherwise bounded exponential backoff with random jitter. |
+| **HTTP 429 / 503 Retry Handling** | Retry transient HTTP `429` (rate limit) and `503` (service unavailable) responses: honor `Retry-After` response header (delta-seconds or HTTP-date / ISO-8601) when present; otherwise bounded exponential backoff with equal jitter (up to 3 retries by default). |
 | **Secret Redaction & Subprocess Isolation** | API keys are stripped from child CI subprocess environments and redacted (`[REDACTED]`) across error messages, stack traces, terminal reports, `--json`, and `--out` benchmark artifacts. |
 | **Structured Outputs / Tool Calling** | Do **not** depend on provider-specific `tools` or `response_format: json_schema`. Use plain-text JSON prompts + local schema validation + at most 1 retry. |
 | **Timing & Telemetry** | Always record client-side `wallTimeMs` (`performance.now()`) plus `usage` (`prompt_tokens`, `completion_tokens`, `total_tokens`), and capture optional provider `time_info` (`queue_time`, `prompt_time`, `completion_time`, `total_time`) when present in the JSON response. |
@@ -373,5 +382,5 @@ Preflight talks to all inference backends through a single `OpenAICompatibleClie
    - Authoritative v0.1.0 `README.md`, synced `docs/SPEC.md`, `docs/DECISIONS.md`, `docs/notes/agent-integrations.md`, `docs/agent-setup.md`, and `skills/preflight/SKILL.md` with zero stale scaffold text and exact code-verified flags/contracts.
 6. **Phase 5 — Final 3-Reviewer Audit Panel & Remediation (Complete on Phase 5 PR):**
    - Independent 3-reviewer code, security, and documentation panel review completed and remediated: env isolation (`~/.config/preflight/.env` + `--env-file`), custom `PREFLIGHT_BASE_URL` key guard, child CI subprocess key stripping, exact-match-only unmodeled tools, verbatim baseline flag retention, Python binary & `@args.txt` blocking, Gather symlink/merge-base hardening, provider-safe `--think` payload gating, honest `bench` command-catch scoring & non-errored percentiles, and full doc/skill alignment.
-7. **Live Benchmark Run (Upcoming):**
-   - Execute live `preflight bench --out bench/results` runs against local Ollama and cloud providers and publish verified recall, false-alarm, and throughput tables.
+7. **Live Benchmark Run (`gemini / gemini-3.5-flash-lite` — Complete):**
+   - Executed `node dist/cli.js bench --provider gemini --delay 4200 --out bench/results` across all 35 curated PRs (`2026-11-26T17:06:10.089Z`, Gemini Free Tier `$0`, `mode: triage`) and published verified metrics in [`bench/results/summary.md`](../bench/results/summary.md) and [`bench/results/results.json`](../bench/results/results.json): `15 / 25` (`60.0%`) caught (`5 / 5` `typecheck`, `7 / 7` `lint_format`, `3 / 13` `unit_test`), `22 / 25` (`88.0%`) diagnostic target hit, `10 / 25` (`40.0%`) missed, `10 / 10` (`100.0%`) static-triage false alarms, `3` allowlist refusals (`fail-08`, `fail-21`, `pass-03`), `0` errors, `2,218.9 ms` median wall (`p95`: `4,344.1 ms`), `2,218.4 ms` median think, and `93.7 tok/s` median throughput. Multi-provider and local Ollama comparisons can be run anytime via `preflight bench --out bench/results`.

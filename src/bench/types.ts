@@ -59,6 +59,8 @@ export interface BenchOptions {
   limit?: number;
   outDir?: string;
   think?: boolean;
+  delayMs?: number;
+  sleepFn?: (ms: number) => Promise<void>;
   maxCompletionTokens?: number;
   maxInputTokens?: number;
   secrets?: readonly string[];

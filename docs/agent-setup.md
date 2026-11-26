@@ -54,9 +54,10 @@ All four Preflight commands are ready to use out of the box:
   ```bash
   preflight init --hook
   ```
-- **Run the curated benchmark suite and write Markdown/JSON reports:**
+- **Run the curated benchmark suite and write Markdown/JSON reports (add `--delay <ms>` to pace free-tier RPM limits):**
   ```bash
   preflight bench --out bench/results
+  preflight bench --provider gemini --delay 4200 --out bench/results
   preflight bench --status fail --language typescript --limit 5 --json
   ```
 
@@ -76,7 +77,7 @@ When you want faster hosted inference, Preflight also includes built-in presets 
 | --- | --- | --- | --- | --- |
 | `ollama` *(default)* | `http://localhost:11434/v1` | `qwen2.5-coder:7b` | `OLLAMA_API_KEY` *(optional)* | No ($0 local) |
 | `groq` *(free tier subject to change)* | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` | `GROQ_API_KEY` | Yes |
-| `gemini` *(free tier subject to change)* | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash` | `GEMINI_API_KEY` | Yes |
+| `gemini` *(free tier subject to change)* | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-3.5-flash-lite` | `GEMINI_API_KEY` | Yes |
 | `openrouter` *(free tier subject to change)* | `https://openrouter.ai/api/v1` | `qwen/qwen-2.5-coder-32b-instruct:free` | `OPENROUTER_API_KEY` | Yes |
 | `cerebras` | `https://api.cerebras.ai/v1` | `llama-3.3-70b` | `CEREBRAS_API_KEY` | Yes |
 | `openai` | `https://api.openai.com/v1` | `gpt-4o-mini` | `OPENAI_API_KEY` | Yes |
