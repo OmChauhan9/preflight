@@ -420,26 +420,42 @@ function collectReferenceTargets(benchCase: BenchCase): {
   const fullPaths = new Set<string>();
   const basenames = new Set<string>();
 
-  const registerPath = (raw: string): void => {
+  const registerPath = (raw: string): boolean => {
     const normalized = normalizePathToken(raw);
-    if (normalized.length === 0) {
-      return;
+    if (normalized.length === 0 || /^\.+$/.test(normalized)) {
+      return false;
     }
     fullPaths.add(normalized);
     const base = posixPath.basename(normalized);
-    if (base.length >= 2) {
+    if (base.length >= 2 && !/^\.+$/.test(base)) {
       basenames.add(base);
     }
+    return true;
   };
 
-  for (const changedFile of benchCase.changed_files) {
-    registerPath(changedFile);
-  }
-
+  let foundInRootCauseLabel = false;
   const labelMatches = benchCase.root_cause_label.match(FILE_PATH_IN_LABEL_RE);
   if (labelMatches !== null) {
     for (const match of labelMatches) {
-      registerPath(match);
+      if (registerPath(match)) {
+        foundInRootCauseLabel = true;
+      }
+    }
+  }
+
+  if (benchCase.failing_command !== null) {
+    const cmdMatches = benchCase.failing_command.match(FILE_PATH_IN_LABEL_RE);
+    if (cmdMatches !== null) {
+      for (const match of cmdMatches) {
+        registerPath(match);
+      }
+    }
+  }
+
+  // Fall back to changed_files ONLY when root_cause_label contains zero path-like tokens.
+  if (!foundInRootCauseLabel) {
+    for (const changedFile of benchCase.changed_files) {
+      registerPath(changedFile);
     }
   }
 
@@ -533,7 +549,7 @@ export function scoreBenchCase(
   );
 
   return {
-    caught: commandCaught || targetCaught,
+    caught: commandCaught,
     commandCaught,
     targetCaught,
     falseAlarm: null,
@@ -633,6 +649,7 @@ export function aggregateBenchMetrics(
     allowlistRefusals += result.refusedCommands.length;
     if (result.error !== null) {
       errors += 1;
+      continue;
     }
 
     if (Number.isFinite(result.wallTimeMs)) {

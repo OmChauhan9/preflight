@@ -61,6 +61,7 @@ export interface BenchOptions {
   think?: boolean;
   maxCompletionTokens?: number;
   maxInputTokens?: number;
+  secrets?: readonly string[];
   loadCaseContext?: (
     benchCase: BenchCase,
   ) => Promise<BenchCaseContext> | BenchCaseContext;

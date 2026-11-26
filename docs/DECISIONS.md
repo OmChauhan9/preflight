@@ -88,19 +88,19 @@ Local models running on consumer hardware (such as Ollama with `qwen2.5-coder:7b
 
 ### Decision
 
-1. **Input Token Cap (`<= 20,000` tokens):**
-   - `Gather` enforces a hard budget of `~20,000` input tokens per LLM request.
-   - Context is assembled and trimmed in deterministic 5-tier priority order:
-     1. `(1) git diff` (unified diff hunks for modified files)
+1. **Input Token Cap (`<= 20,000` estimated context tokens):**
+   - `Gather` enforces a hard budget of `<= 20,000` estimated context tokens (`chars / 4`, `~20K` prompt tokens) per LLM request.
+   - Context is assembled and trimmed in deterministic 5-tier priority order (plus an optional `recent_ci_log` section placed right after `git diff` when `--log` is passed):
+     1. `(1) git diff` (unified diff hunks for modified files, plus optional `recent_ci_log`)
      2. `(2) CI commands` (parsed `.github/workflows/*.yml` jobs and commands)
      3. `(3) changed files' tests` (test files importing changed modules via the static import graph)
      4. `(4) changed files` (full or surrounding source context of modified files)
      5. `(5) neighbors` (adjacent modules in the local import graph)
-   - Trimming proceeds in **reverse priority order** (dropping `(5) neighbors` first, then `(4) changed files`, `(3) changed files' tests`, etc.) to stay within `<= ~20,000` input tokens. (When running `preflight explain`, the failing CI log excerpt is included alongside the high-priority diff and workflow commands.)
+   - Trimming proceeds in **reverse priority order** (dropping `(5) neighbors` first, then `(4) changed files`, `(3) changed files' tests`, etc.) to stay within `<= 20,000` estimated context tokens (reserving bounded tail space for `recent_ci_log` and `ci_commands` when an oversized diff overflows). (When running `preflight explain`, the failing CI log excerpt is included alongside the high-priority diff and workflow commands.)
 2. **Low `max_completion_tokens` (`~1,500`):**
    - Requests explicitly cap completion output at `~1,500` tokens (`<= 2,000`) so responses stay compact and pre-charged token quotas are preserved.
 3. **Reasoning Off by Default (`--think` Opt-In):**
-   - Reasoning is off by default for low latency and compact JSON output, and can be enabled explicitly via the `--think` CLI flag.
+   - Reasoning is off by default for low latency and compact JSON output, and can be enabled explicitly via the `--think` CLI flag (sending `reasoning_effort: "low"`, and `reasoning_format: "parsed"` only on `groq` and `cerebras`).
 
 ### Consequences
 
@@ -144,15 +144,15 @@ Because Preflight supports both local inference (Ollama on CPU/Apple Silicon/GPU
 
 ### Decision
 
-1. **Always-On Speed & Telemetry Panel:**
-   - Every CLI run renders a concise **Speed & Telemetry Panel** showing:
+1. **Always-On Speed & Telemetry Panel (`check` & `explain`):**
+   - Every `preflight check` and `preflight explain` run renders a concise **Speed & Telemetry Panel** showing:
      - Active `provider` and `model`
      - `prompt_tokens`, `completion_tokens`, and `total_tokens` from `usage`
      - `tok/s` throughput (computed from `usage.completion_tokens / time_info.completion_time` when the provider supplies `time_info`, or `usage.completion_tokens / (wallTimeMs / 1000)` using client wall-clock timing)
      - Optional provider `time_info` breakdown (`queue_time`, `prompt_time`, `completion_time`, `total_time`) when present in the response
      - Stage-by-stage wall time breakdown: `gather_ms`, `think_ms`, `verify_ms`, and `total_wall_ms`
 2. **Structured `--json` Parity:**
-   - Passing `--json` outputs the full `telemetry` object alongside `gather`, `think`, `verify`/`explain`, and `provider` metadata so coding agents and `preflight bench` can programmatically inspect and compare providers.
+   - Passing `--json` on `preflight check` and `preflight explain` outputs the full `telemetry` object alongside `gather`, `think`, `verify`/`explain`, and `provider` metadata. Separately, `preflight bench` aggregates per-case telemetry into its summary `metrics` object (`medianWallMs`, `p95WallMs`, `medianThinkMs`, `medianTokPerSec`), and `preflight init --hook` emits hook installation status without invoking an LLM.
 
 ### Consequences
 
@@ -205,8 +205,8 @@ Local inference servers (such as Ollama on a single GPU/CPU) thrash memory if hi
    - All `OpenAICompatibleClient` calls execute through a process-wide single-flight FIFO mutex queue so only one LLM inference request is in flight at any time.
 2. **HTTP 429 Backoff with `Retry-After`:**
    - On HTTP `429`, the HTTP client inspects the `Retry-After` response header (in delta-seconds or HTTP-date) when present, falling back to bounded exponential backoff with random jitter before retrying.
-3. **Secret Redaction:**
-   - API keys are read strictly from environment variables (`PREFLIGHT_API_KEY`, `OLLAMA_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `CEREBRAS_API_KEY`). Any thrown errors or debug logs scrub `Authorization` headers and key values (`[REDACTED]`).
+3. **Secret Redaction & Env Isolation:**
+   - API keys are read strictly from exported environment variables, `~/.config/preflight/.env`, or an explicit `--env-file <path>` (`PREFLIGHT_API_KEY`, `OLLAMA_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `CEREBRAS_API_KEY`) — repo-local `.env` files are not auto-loaded, custom `PREFLIGHT_BASE_URL` overrides never silently pair with a preset's provider key, child CI subprocesses have LLM API keys stripped, and all errors, terminal output, `--json`, and `--out` benchmark artifacts scrub `Authorization` headers and key values to `[REDACTED]`.
 
 ### Consequences
 

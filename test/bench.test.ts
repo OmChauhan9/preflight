@@ -362,9 +362,9 @@ describe('scoreBenchCase', () => {
     expect(score.refusedCommands).toEqual([]);
   });
 
-  it('marks a failed case caught by target only when command is wrong or refused', () => {
+  it('reports targetCaught separately without counting target-only or zero-command guesses as caught', () => {
     const benchCase = makeSampleFailCase();
-    const thinkOutput: ThinkOutput = {
+    const wrongCommandOutput: ThinkOutput = {
       likely_failures: [
         {
           category: 'test',
@@ -377,13 +377,109 @@ describe('scoreBenchCase', () => {
       notes: 'Only selected lint command.',
     };
 
-    const score = scoreBenchCase(benchCase, thinkOutput, expressWorkflows);
+    const score = scoreBenchCase(benchCase, wrongCommandOutput, expressWorkflows);
     expect(score.commandCaught).toBe(false);
     expect(score.targetCaught).toBe(true);
-    expect(score.caught).toBe(true);
+    expect(score.caught).toBe(false);
     expect(score.falseAlarm).toBeNull();
     expect(score.allowedCommands).toEqual(['npm run lint']);
     expect(score.refusedCommands).toEqual([]);
+
+    // Zero commands + guessing a filename must NOT score caught: true.
+    const zeroCommandsOutput: ThinkOutput = {
+      likely_failures: [
+        {
+          category: 'test',
+          target: 'lib/application.js',
+          reason: 'Router issue in lib/application.js.',
+        },
+      ],
+      affected_jobs: ['test'],
+      commands: [],
+      notes: 'No commands proposed.',
+    };
+    const zeroCmdScore = scoreBenchCase(
+      benchCase,
+      zeroCommandsOutput,
+      expressWorkflows,
+    );
+    expect(zeroCmdScore.commandCaught).toBe(false);
+    expect(zeroCmdScore.targetCaught).toBe(true);
+    expect(zeroCmdScore.caught).toBe(false);
+  });
+
+  it('extracts target references from root_cause_label and failing_command before falling back to changed_files', () => {
+    // root_cause_label mentions lib/application.js & test/app.listRoutes.js, NOT package.json.
+    const benchCase = makeSampleFailCase();
+    const unrelatedChangedFileGuess: ThinkOutput = {
+      likely_failures: [
+        {
+          category: 'test',
+          target: 'package.json',
+          reason: 'Changed package.json metadata.',
+        },
+      ],
+      affected_jobs: ['test'],
+      commands: ['npm run lint'],
+      notes: 'Guessed unrelated changed file.',
+    };
+    const unrelatedScore = scoreBenchCase(
+      benchCase,
+      unrelatedChangedFileGuess,
+      expressWorkflows,
+    );
+    expect(unrelatedScore.targetCaught).toBe(false);
+    expect(unrelatedScore.caught).toBe(false);
+
+    // failing_command path is also recognized as a reference target.
+    const cmdPathCase = makeSampleFailCase({
+      failing_command: 'pytest tests/test_router.py',
+      root_cause_label: 'unit_test: src/router.py fails on empty prefix',
+      changed_files: ['src/router.py', 'README.md'],
+    });
+    const cmdPathScore = scoreBenchCase(
+      cmdPathCase,
+      {
+        likely_failures: [
+          {
+            category: 'test',
+            target: 'tests/test_router.py',
+            reason: 'Router test failure.',
+          },
+        ],
+        affected_jobs: ['test'],
+        commands: [],
+        notes: 'Matched failing_command path.',
+      },
+      [{ file: '.github/workflows/ci.yml', job: 'test', command: 'pytest' }],
+    );
+    expect(cmdPathScore.targetCaught).toBe(true);
+    expect(cmdPathScore.caught).toBe(false);
+
+    // Falls back to changed_files ONLY when root_cause_label contains zero path-like tokens.
+    const noPathLabelCase = makeSampleFailCase({
+      root_cause_label: 'typecheck failure due to missing return annotation',
+      failing_command: 'npm run test-ci',
+      changed_files: ['lib/application.js'],
+    });
+    const fallbackScore = scoreBenchCase(
+      noPathLabelCase,
+      {
+        likely_failures: [
+          {
+            category: 'typecheck',
+            target: 'lib/application.js',
+            reason: 'Missing return type.',
+          },
+        ],
+        affected_jobs: ['test'],
+        commands: [],
+        notes: 'Fallback to changed_files.',
+      },
+      expressWorkflows,
+    );
+    expect(fallbackScore.targetCaught).toBe(true);
+    expect(fallbackScore.caught).toBe(false);
   });
 
   it('marks a failed case missed when non-CI commands are refused and no target matches', () => {
@@ -574,11 +670,72 @@ describe('percentile & aggregateBenchMetrics', () => {
       falseAlarms: 1,
       allowlistRefusals: 3,
       errors: 1,
-      medianWallMs: 350,
-      p95WallMs: 600,
-      medianThinkMs: 315,
+      // Errored case-6 (600ms/550ms) is excluded from latency percentiles.
+      medianWallMs: 300,
+      p95WallMs: 500,
+      medianThinkMs: 270,
       medianTokPerSec: 60,
     });
+  });
+
+  it('excludes fast 1ms errored cases from latency/throughput percentiles and returns null when all cases error', () => {
+    const okBase: BenchCaseResult = {
+      id: 'ok-1',
+      repo: 'expressjs/express',
+      pr: 1,
+      language: 'javascript',
+      status: 'fail',
+      caught: true,
+      commandCaught: true,
+      targetCaught: true,
+      falseAlarm: null,
+      predictedCommands: ['npm run test-ci'],
+      allowedCommands: ['npm run test-ci'],
+      refusedCommands: [],
+      affectedJobs: ['test'],
+      likelyFailureCount: 1,
+      thinkAttempts: 1,
+      wallTimeMs: 200,
+      thinkMs: 180,
+      tokPerSec: 50,
+      usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+      error: null,
+    };
+
+    const errBase: BenchCaseResult = {
+      ...okBase,
+      id: 'err-1',
+      caught: null,
+      commandCaught: null,
+      targetCaught: null,
+      wallTimeMs: 1,
+      thinkMs: 1,
+      tokPerSec: 9999,
+      error: 'ECONNREFUSED',
+    };
+
+    const mixed = aggregateBenchMetrics([
+      okBase,
+      { ...okBase, id: 'ok-2', wallTimeMs: 300, thinkMs: 280, tokPerSec: 70 },
+      { ...okBase, id: 'ok-3', wallTimeMs: 400, thinkMs: 380, tokPerSec: 90 },
+      errBase,
+      { ...errBase, id: 'err-2' },
+      { ...errBase, id: 'err-3' },
+      { ...errBase, id: 'err-4' },
+    ]);
+
+    expect(mixed.errors).toBe(4);
+    expect(mixed.medianWallMs).toBe(300);
+    expect(mixed.p95WallMs).toBe(400);
+    expect(mixed.medianThinkMs).toBe(280);
+    expect(mixed.medianTokPerSec).toBe(70);
+
+    const allErrored = aggregateBenchMetrics([errBase, { ...errBase, id: 'err-2' }]);
+    expect(allErrored.errors).toBe(2);
+    expect(allErrored.medianWallMs).toBeNull();
+    expect(allErrored.p95WallMs).toBeNull();
+    expect(allErrored.medianThinkMs).toBeNull();
+    expect(allErrored.medianTokPerSec).toBeNull();
   });
 });
 
@@ -740,7 +897,8 @@ describe('runBench, renderBenchSummaryMarkdown, and formatBenchReport', () => {
     expect(summaryDisk).toContain('`triage`');
     expect(summaryDisk).toContain('Honesty Note');
     expect(summaryDisk).toContain('distinct from full local repository checkout');
-    expect(summaryDisk).toContain('caught / failedCases');
+    expect(summaryDisk).toContain('Caught (allowlisted command) / failedCases');
+    expect(summaryDisk).toContain('Target Hit (diagnostic) / failedCases');
     expect(summaryDisk).toContain('case-01-fail-ok');
     expect(summaryDisk).toContain('case-02-fail-http-error');
     expect(summaryDisk).toContain('case-03-pass-clean');
@@ -763,14 +921,71 @@ describe('runBench, renderBenchSummaryMarkdown, and formatBenchReport', () => {
     const formattedCli = formatBenchReport(report);
     expect(formattedCli).toContain('Preflight Benchmark (triage)');
     expect(formattedCli).toContain('ollama / qwen2.5-coder:7b');
-    expect(formattedCli).toContain('1 / 2');
+    expect(formattedCli).toContain('Caught (allowlisted command): 1 / 2');
+    expect(formattedCli).toContain('Target Hit (diagnostic)     : 1 / 2');
     expect(formattedCli).toContain('0 / 1');
-    expect(formattedCli).toContain('Allowlist refusals : 0');
-    expect(formattedCli).toContain('Errors             : 1');
+    expect(formattedCli).toContain('Allowlist refusals          : 0');
+    expect(formattedCli).toContain('Errors                      : 1');
     expect(formattedCli).toContain('200.0 tok/s');
     expect(formattedCli).toContain(summaryPath);
     expect(formattedCli).toContain(resultsPath);
     expect(formattedCli).not.toContain('sk-topsecretvalue1234567890');
+  });
+
+  it('redacts custom unprefixed options.secrets from written summary.md and results.json', async () => {
+    const casesDir = createTempDir('preflight-bench-secret-cases-');
+    const outDir = createTempDir('preflight-bench-secret-out-');
+    const customSecret = 'my-opaque-unprefixed-bench-secret-9999';
+
+    writeFileSync(
+      path.join(casesDir, '01.json'),
+      JSON.stringify(makeSampleFailCase({ id: 'case-secret-redact' })),
+      'utf8',
+    );
+
+    const mockClient: LlmClient = {
+      provider: 'custom',
+      baseUrl: `https://proxy.example.com/v1?x=${customSecret}`,
+      model: 'local-coder',
+      chatCompletion(): Promise<ChatCompletionResult> {
+        return Promise.reject(
+          new Error(`Upstream error leaking ${customSecret}`),
+        );
+      },
+    };
+
+    const report = await runBench(
+      {
+        cwd: REPO_ROOT,
+        casesDir,
+        outDir,
+        secrets: [customSecret],
+      },
+      mockClient,
+      {
+        provider: 'custom',
+        model: 'local-coder',
+        baseUrl: `https://proxy.example.com/v1?x=${customSecret}`,
+      },
+    );
+
+    expect(report.baseUrl).not.toContain(customSecret);
+    expect(report.baseUrl).toContain('[REDACTED]');
+    expect(report.cases[0]?.error).not.toContain(customSecret);
+    expect(report.cases[0]?.error).toContain('[REDACTED]');
+
+    const summaryDisk = readFileSync(
+      report.writtenFiles?.summaryPath ?? '',
+      'utf8',
+    );
+    const resultsDisk = readFileSync(
+      report.writtenFiles?.resultsPath ?? '',
+      'utf8',
+    );
+    expect(summaryDisk).not.toContain(customSecret);
+    expect(summaryDisk).toContain('[REDACTED]');
+    expect(resultsDisk).not.toContain(customSecret);
+    expect(resultsDisk).toContain('[REDACTED]');
   });
 
   it('captures ThinkValidationError cleanly after 2 attempts without aborting subsequent cases', async () => {

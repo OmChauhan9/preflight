@@ -12,6 +12,92 @@ const DEFAULT_BASE_DELAY_MS = 500;
 const DEFAULT_MAX_DELAY_MS = 10_000;
 const MAX_ERROR_BODY_LENGTH = 500;
 
+const REASONING_FORMAT_PROVIDERS: ReadonlySet<string> = new Set([
+  'groq',
+  'cerebras',
+]);
+
+const OLLAMA_RECOVERY_HINT =
+  'Ensure Ollama is running at http://localhost:11434/v1 ("ollama serve") or select another preset with --provider.';
+
+/**
+ * Returns true only for providers known to accept the `reasoning_format` extension
+ * (`groq` and `cerebras`). OpenAI and Gemini reject `reasoning_format` with HTTP 400.
+ */
+export function supportsReasoningFormat(provider: string): boolean {
+  return REASONING_FORMAT_PROVIDERS.has(provider.trim().toLowerCase());
+}
+
+function extractCauseDetail(cause: unknown): string | null {
+  if (cause === undefined || cause === null) {
+    return null;
+  }
+  if (typeof cause === 'string') {
+    const trimmed = cause.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (typeof cause === 'object') {
+    const record = cause as {
+      code?: unknown;
+      message?: unknown;
+      errors?: unknown;
+    };
+    const code =
+      typeof record.code === 'string' && record.code.trim().length > 0
+        ? record.code.trim()
+        : null;
+    const message =
+      typeof record.message === 'string' && record.message.trim().length > 0
+        ? record.message.trim()
+        : null;
+
+    if (code && message) {
+      return message.includes(code) ? message : `${code}: ${message}`;
+    }
+    if (message) {
+      return message;
+    }
+
+    if (Array.isArray(record.errors) && record.errors.length > 0) {
+      const firstDetail = extractCauseDetail(record.errors[0]);
+      if (firstDetail) {
+        if (code && !firstDetail.includes(code)) {
+          return `${code}: ${firstDetail}`;
+        }
+        return firstDetail;
+      }
+    }
+
+    if (code) {
+      return code;
+    }
+  }
+  return null;
+}
+
+function formatNetworkErrorMessage(
+  provider: string,
+  error: unknown,
+  secrets: readonly string[],
+): string {
+  const rawMessage = error instanceof Error ? error.message : String(error);
+  const causeDetail =
+    error instanceof Error ? extractCauseDetail(error.cause) : null;
+  const combined =
+    causeDetail && !rawMessage.includes(causeDetail)
+      ? `${rawMessage} (${causeDetail})`
+      : rawMessage;
+  const safeMessage = redactSecrets(combined, secrets);
+  const baseMessage = `${provider} request failed: ${safeMessage}`;
+
+  if (provider.trim().toLowerCase() === 'ollama') {
+    const separator = baseMessage.endsWith('.') ? ' ' : '. ';
+    return `${baseMessage}${separator}${OLLAMA_RECOVERY_HINT}`;
+  }
+
+  return baseMessage;
+}
+
 /**
  * Serializes async tasks so only one request runs at a time within a process.
  */
@@ -332,7 +418,10 @@ export async function postChatCompletion(
   if (params.request.reasoning_effort !== undefined) {
     payload.reasoning_effort = params.request.reasoning_effort;
   }
-  if (params.request.reasoning_format !== undefined) {
+  if (
+    params.request.reasoning_format !== undefined &&
+    supportsReasoningFormat(params.provider)
+  ) {
     payload.reasoning_format = params.request.reasoning_format;
   }
 
@@ -370,10 +459,8 @@ export async function postChatCompletion(
               { provider: params.provider },
             );
           }
-          const rawMessage = error instanceof Error ? error.message : String(error);
-          const safeMessage = redactSecrets(rawMessage, secrets);
           throw new LlmHttpError(
-            `${params.provider} request failed: ${safeMessage}`,
+            formatNetworkErrorMessage(params.provider, error, secrets),
             { provider: params.provider },
           );
         }

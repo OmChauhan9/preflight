@@ -1,8 +1,10 @@
+import { existsSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { checkCommandAllowlist, hasPathTraversal } from './allowlist.js';
 import { executeCommand } from './runner.js';
 import {
+  DEFAULT_MAX_COMMANDS,
   DEFAULT_MAX_OUTPUT_BYTES,
   DEFAULT_TIMEOUT_MS,
   type CommandCheckResult,
@@ -15,9 +17,11 @@ import {
 } from './types.js';
 
 export {
+  DEFAULT_MAX_COMMANDS,
   DEFAULT_MAX_OUTPUT_BYTES,
   DEFAULT_TIMEOUT_MS,
   type AllowlistDecision,
+  type CheckAllowlistOptions,
   type CommandCheckResult,
   type CommandCheckStatus,
   type ExecuteCommandOptions,
@@ -36,7 +40,15 @@ export {
   extractCommandSignature,
   tokenizeCommand,
 } from './allowlist.js';
-export { executeCommand } from './runner.js';
+export { executeCommand, STRIPPED_CHILD_ENV_KEYS } from './runner.js';
+
+function isPathInsideRoot(rootDir: string, targetPath: string): boolean {
+  const rel = relative(rootDir, targetPath);
+  return (
+    rel === '' ||
+    (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel))
+  );
+}
 
 function resolveExecutionCwd(
   repoRoot: string,
@@ -60,12 +72,38 @@ function resolveExecutionCwd(
   }
 
   const resolved = resolve(repoRoot, workingDirectory);
-  const rel = relative(repoRoot, resolved);
-  if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+  if (!isPathInsideRoot(repoRoot, resolved)) {
     return {
       ok: false,
       reason: `Unsafe workflow workingDirectory "${workingDirectory}": escapes repository root`,
     };
+  }
+
+  if (existsSync(repoRoot)) {
+    let realRoot: string;
+    let realTarget: string;
+    try {
+      realRoot = realpathSync(repoRoot);
+      realTarget = realpathSync(resolved);
+      if (!statSync(realTarget).isDirectory()) {
+        return {
+          ok: false,
+          reason: `Unsafe workflow workingDirectory "${workingDirectory}": target is not a directory`,
+        };
+      }
+    } catch {
+      return {
+        ok: false,
+        reason: `Unsafe workflow workingDirectory "${workingDirectory}": directory does not exist inside repository`,
+      };
+    }
+
+    if (!isPathInsideRoot(realRoot, realTarget)) {
+      return {
+        ok: false,
+        reason: `Unsafe workflow workingDirectory "${workingDirectory}": symlink resolves outside repository root`,
+      };
+    }
   }
 
   return { ok: true, cwd: resolved };
@@ -79,6 +117,12 @@ export async function runVerify(
   const verifyStart = performance.now();
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxOutputBytes = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
+  const maxCommands =
+    options.maxCommands !== undefined &&
+    Number.isFinite(options.maxCommands) &&
+    options.maxCommands >= 0
+      ? Math.floor(options.maxCommands)
+      : DEFAULT_MAX_COMMANDS;
   const spawnCommand = options.spawnCommand ?? executeCommand;
   const repoRoot = resolve(options.cwd);
 
@@ -96,7 +140,9 @@ export async function runVerify(
     }
     seenCommands.add(normalizedCommand);
 
-    const decision = checkCommandAllowlist(command, workflowCommands);
+    const decision = checkCommandAllowlist(command, workflowCommands, {
+      cwd: repoRoot,
+    });
 
     if (!decision.allowed) {
       refusedCommands.push({ command, reason: decision.reason });
@@ -136,6 +182,21 @@ export async function runVerify(
       continue;
     }
     seenExecutions.add(executionKey);
+
+    if (executedCount >= maxCommands) {
+      const reason = `Exceeded maximum commands per verify run (${maxCommands})`;
+      refusedCommands.push({ command, reason });
+      results.push({
+        command,
+        status: 'refused',
+        exitCode: null,
+        durationMs: 0,
+        stdout: '',
+        stderr: '',
+        refusalReason: reason,
+      });
+      continue;
+    }
 
     const execResult = await spawnCommand(decision.binary, decision.args, {
       cwd: cwdResolution.cwd,
