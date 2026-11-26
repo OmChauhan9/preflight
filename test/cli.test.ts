@@ -314,6 +314,7 @@ describe('preflight CLI help', () => {
       expect(output).toContain('--status <fail|pass|all>');
       expect(output).toContain('--language <lang>');
       expect(output).toContain('--limit <n>');
+      expect(output).toContain('--delay <ms>');
       expect(output).toContain('--out <dir>');
       expect(output).not.toContain('not implemented');
       expect(output).not.toContain('Phase 0');
@@ -528,6 +529,36 @@ describe('preflight CLI bench command', () => {
         limit: 10,
         outDir: path.resolve('/repo', 'out-dir'),
         think: true,
+        secrets: [],
+      });
+      expect(captured.stderr).toEqual([]);
+    }
+  });
+
+  it('parses --delay <ms> and passes delayMs to runBench', async () => {
+    for (const testCase of [
+      { argv: ['bench', '--delay', '4200'], expectedDelayMs: 4200 },
+      { argv: ['bench', '--delay=4200'], expectedDelayMs: 4200 },
+      { argv: ['bench', '--delay', '0'], expectedDelayMs: 0 },
+    ]) {
+      const captured = createCapturedIo();
+      let capturedBenchOpts: BenchOptions | undefined;
+
+      const code = await runCli(testCase.argv, captured.io, {
+        cwd: '/repo',
+        env: {},
+        createClient: (opts) => createFakeClient(opts),
+        runBenchFn: async (opts, _client, meta) => {
+          capturedBenchOpts = opts;
+          return makeBenchReport({}, meta);
+        },
+      });
+
+      expect(code).toBe(0);
+      expect(capturedBenchOpts).toEqual({
+        cwd: '/repo',
+        delayMs: testCase.expectedDelayMs,
+        think: false,
         secrets: [],
       });
       expect(captured.stderr).toEqual([]);
@@ -910,6 +941,14 @@ describe('preflight CLI validation and secret redaction', () => {
       { argv: ['bench', '--limit', '-3'], expectedError: 'Invalid value for --limit' },
       { argv: ['bench', '--limit=2.5'], expectedError: 'Invalid value for --limit' },
       { argv: ['bench', '--limit=abc'], expectedError: 'Invalid value for --limit' },
+      { argv: ['bench', '--delay'], expectedError: 'Missing value for --delay' },
+      { argv: ['bench', '--delay='], expectedError: 'Missing value for --delay' },
+      { argv: ['bench', '--delay', '--json'], expectedError: 'Missing value for --delay' },
+      { argv: ['bench', '--delay', '-1'], expectedError: 'Invalid value for --delay' },
+      { argv: ['bench', '--delay=-1'], expectedError: 'Invalid value for --delay' },
+      { argv: ['bench', '--delay', 'abc'], expectedError: 'Invalid value for --delay' },
+      { argv: ['bench', '--delay=abc'], expectedError: 'Invalid value for --delay' },
+      { argv: ['bench', '--delay', '1.5'], expectedError: 'Invalid value for --delay' },
       { argv: ['bench', '--out'], expectedError: 'Missing value for --out' },
       { argv: ['bench', '--out='], expectedError: 'Missing value for --out' },
     ];
@@ -1036,10 +1075,13 @@ describe('preflight CLI validation and secret redaction', () => {
       { argv: ['check', '--status', 'fail'], flag: '--status', cmd: 'check' },
       { argv: ['check', '--language', 'python'], flag: '--language', cmd: 'check' },
       { argv: ['check', '--limit', '2'], flag: '--limit', cmd: 'check' },
+      { argv: ['check', '--delay', '100'], flag: '--delay', cmd: 'check' },
       { argv: ['check', '--out', 'out'], flag: '--out', cmd: 'check' },
       { argv: ['explain', 'ci.log', '--cases-dir', 'cases'], flag: '--cases-dir', cmd: 'explain' },
+      { argv: ['explain', 'ci.log', '--delay', '100'], flag: '--delay', cmd: 'explain' },
       { argv: ['explain', 'ci.log', '--out', 'out'], flag: '--out', cmd: 'explain' },
       { argv: ['init', '--hook', '--limit', '2'], flag: '--limit', cmd: 'init' },
+      { argv: ['init', '--hook', '--delay', '100'], flag: '--delay', cmd: 'init' },
       { argv: ['init', '--hook', '--base', 'main'], flag: '--base', cmd: 'init' },
       { argv: ['init', '--hook', '--log', 'ci.log'], flag: '--log', cmd: 'init' },
       { argv: ['bench', '--base', 'main'], flag: '--base', cmd: 'bench' },

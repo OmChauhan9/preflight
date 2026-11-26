@@ -419,6 +419,100 @@ describe('OpenAICompatibleClient', () => {
     expect(mockSleep.delays).toEqual([1000, 1000]);
   });
 
+  it('retries transient HTTP 503 using Retry-After header and bounded exponential backoff with jitter', async () => {
+    const mockSleep = createMockSleep();
+    const mock = createMockFetch((_url, _init, callIndex) => {
+      if (callIndex === 0) {
+        return createJsonResponse(
+          {
+            error: {
+              message:
+                'This model is currently experiencing high demand. Spikes in demand are usually temporary.',
+            },
+          },
+          { status: 503, headers: { 'Retry-After': '2' } },
+        );
+      }
+      if (callIndex === 1) {
+        return createJsonResponse(
+          { error: { message: 'Temporary service overload' } },
+          { status: 503 },
+        );
+      }
+      return createJsonResponse({
+        id: 'chatcmpl-after-503-retry',
+        choices: [{ index: 0, message: { role: 'assistant', content: 'ok' } }],
+      });
+    });
+
+    const client = new OpenAICompatibleClient({
+      provider: 'gemini',
+      apiKey: 'AIzaSyRetry503Test1234567890',
+      fetch: mock.fetch,
+      sleep: mockSleep.sleep,
+      random: () => 0.5,
+      baseDelayMs: 200,
+      maxDelayMs: 3000,
+      maxRetries: 3,
+      singleFlightQueue: new SingleFlightQueue(),
+    });
+
+    const result = await client.chatCompletion({
+      messages: [{ role: 'user', content: 'retry 503 test' }],
+    });
+
+    expect(result.raw.id).toBe('chatcmpl-after-503-retry');
+    expect(mock.calls).toHaveLength(3);
+    // Attempt 0: Retry-After: 2 -> 2000ms
+    // Attempt 1: exponential = 200 * 2^1 = 400, jitter with random=0.5 -> 400 * 0.75 = 300ms
+    expect(mockSleep.delays).toEqual([2000, 300]);
+  });
+
+  it('throws LlmHttpError with HTTP 503 and redacted body after exhausting HTTP 503 retries', async () => {
+    const mockSleep = createMockSleep();
+    const mock = createMockFetch(() =>
+      createJsonResponse(
+        {
+          error:
+            'High demand for key AIzaSyExhausted503Key1234567890; spikes in demand are usually temporary.',
+        },
+        { status: 503, headers: { 'Retry-After': '10' } },
+      ),
+    );
+
+    const client = new OpenAICompatibleClient({
+      provider: 'gemini',
+      apiKey: 'AIzaSyExhausted503Key1234567890',
+      fetch: mock.fetch,
+      sleep: mockSleep.sleep,
+      maxRetries: 2,
+      maxDelayMs: 1000,
+      singleFlightQueue: new SingleFlightQueue(),
+    });
+
+    let caught: unknown;
+    try {
+      await client.chatCompletion({
+        messages: [{ role: 'user', content: 'exhaust 503 retries' }],
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(LlmHttpError);
+    const httpErr = caught as LlmHttpError;
+    expect(httpErr.status).toBe(503);
+    expect(httpErr.provider).toBe('gemini');
+    expect(httpErr.retryAfterMs).toBe(10_000);
+    expect(httpErr.message).toContain('HTTP 503');
+    expect(httpErr.message).toContain('after 2 retries');
+    expect(httpErr.message).not.toContain('AIzaSyExhausted503Key1234567890');
+    expect(httpErr.message).toContain('[REDACTED]');
+    expect(mock.calls).toHaveLength(3);
+    // Retry-After of 10s bounded to maxDelayMs of 1000ms
+    expect(mockSleep.delays).toEqual([1000, 1000]);
+  });
+
   it('serializes concurrent requests through the single-flight queue', async () => {
     let inFlight = 0;
     let maxInFlight = 0;
