@@ -104,3 +104,27 @@ Two anchor cases in this corpus have been locally reproduced end-to-end by check
 - **`fail-10-werkzeug-pr-3269`** (`pallets/werkzeug` PR `#3269`, commit `bb9c27fb2d425c70977b304b18b448d6525c800f`)
 
 See [`bench/REPRO.md`](./REPRO.md) for the exact local reproduction commands and outputs.
+
+---
+
+## Published Live Results
+
+The latest committed live triage benchmark run is archived in [`bench/results/summary.md`](./results/summary.md) and [`bench/results/results.json`](./results/results.json):
+
+- **Command:** `node dist/cli.js bench --provider gemini --delay 4200 --out bench/results` (Gemini Free Tier, `$0`)
+- **Timestamp:** `2026-11-26T17:06:10.089Z`
+- **Provider / Model:** `gemini` / `gemini-3.5-flash-lite` (`https://generativelanguage.googleapis.com/v1beta/openai`)
+- **Mode:** `triage` (static Stage 2 `Think` + Stage 3 workflow-derived allowlist validation against case metadata — distinct from full local checkout and subprocess execution)
+
+| Metric | Value |
+| :--- | :--- |
+| **Total Cases** | `35` (`25` failed, `10` passing across 10 JS/TS & Python repos) |
+| **Caught (exact allowlisted failing CI command)** | **`15 / 25` (`60.0%`)** (`typecheck`: `5 / 5`, `lint_format`: `7 / 7`, `unit_test`: `3 / 13`) |
+| **Target Hit (diagnostic, `root_cause_label`)** | **`22 / 25` (`88.0%`)** (`typecheck`: `5 / 5`, `lint_format`: `5 / 7`, `unit_test`: `12 / 13`) |
+| **Missed** | **`10 / 25` (`40.0%`)** (all 10 in `unit_test`, where the model chose an allowlisted scoped runner such as `npm test <file>`, `pnpm test`, or `pytest <file>` instead of the CI wrapper) |
+| **Static-Triage False Alarms (passing PRs)** | **`10 / 10` (`100.0%`)** (`likely_failures.length > 0` without diff hunks or command execution) |
+| **Allowlist Refusals** | **`3`** (`fail-08`, `fail-21`, `pass-03`) |
+| **Errors** | **`0`** |
+| **Latency & Throughput** | Median wall **`2,218.9 ms`** (`p95`: `4,344.1 ms`), median think `2,218.4 ms`, median **`93.7 tok/s`** |
+
+> **Honesty Note:** Static `mode: triage` reports `10 / 10` false alarms on passing PRs because the model sees only changed file paths and baseline CI commands — never diff hunks or subprocess outputs. In real `preflight check` runs, pass/fail verdicts come 100% from executed allowlisted subprocess exit codes, never from LLM triage predictions alone.

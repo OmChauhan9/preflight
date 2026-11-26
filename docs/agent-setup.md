@@ -54,9 +54,10 @@ All four Preflight commands are ready to use out of the box:
   ```bash
   preflight init --hook
   ```
-- **Run the curated benchmark suite and write Markdown/JSON reports:**
+- **Run the curated benchmark suite and write Markdown/JSON reports (add `--delay <ms>` to pace free-tier RPM limits):**
   ```bash
   preflight bench --out bench/results
+  preflight bench --provider gemini --delay 4200 --out bench/results
   preflight bench --status fail --language typescript --limit 5 --json
   ```
 
