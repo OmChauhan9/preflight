@@ -156,6 +156,7 @@ preflight init --hook --json
 
 # 4. Run the curated benchmark triage suite and emit metrics
 preflight bench --provider ollama --out bench/results
+preflight bench --provider gemini --delay 4200 --out bench/results
 preflight bench --status fail --language typescript --limit 5 --json
 preflight bench --case fail-01-express-pr-7531 --cases-dir bench/cases
 ```
@@ -178,6 +179,7 @@ preflight bench --case fail-01-express-pr-7531 --cases-dir bench/cases
 | `--status <fail\|pass\|all>` | `bench` | Filter benchmark cases by status *(default: `all`)* |
 | `--language <lang>` | `bench` | Filter benchmark cases by language (`javascript`, `typescript`, `python`) |
 | `--limit <n>` | `bench` | Limit the number of benchmark cases to run |
+| `--delay <ms>` | `bench` | Delay in milliseconds between benchmark cases *(default: `0`)* |
 | `--out <dir>` | `bench` | Write `summary.md` and `results.json` to directory |
 | `--json` | all commands | Emit machine-readable, secret-redacted JSON output |
 | `--think` | `check`, `explain`, `bench` | Enable model reasoning mode (`reasoning_effort: "low"`; `reasoning_format: "parsed"` sent only to `groq`/`cerebras`) |
@@ -268,7 +270,7 @@ Preflight treats LLM output, repository diffs, and CI logs as untrusted input:
 - **Verbatim baseline flags & binary/target-swap prevention:** Every flag inherited from the matched baseline CI command is **preserved verbatim** (preventing flag stripping such as dropping `--check` or `--strict`); weakening/dangerous flags (such as `--eval`, `--require`, `--config`, `--fix`, `--write`, `--updateSnapshot`, `--exit-zero`) are blocked unless verbatim in CI; Python interpreter binary path swaps (e.g., `/tmp/evil/python -m pytest`) are blocked; and interpreters (`node`, `python`, `sh`, `bash`, etc.), package-manager mutation subcommands, and task runners (`make`, `just`, `rake`, `git`, `curl`, `docker`, etc.) require exact workflow matches.
 - **Env isolation & exfiltration defense:** Repo-local `.env` files in the analyzed repository are **not** auto-loaded (opt in explicitly via `--env-file <path>` or store keys in `~/.config/preflight/.env`); custom `PREFLIGHT_BASE_URL` overrides never silently pair with a preset's provider-specific key (requiring explicit `PREFLIGHT_API_KEY`); and child CI verification subprocesses have LLM API key environment variables stripped before spawn.
 - **Hardened Gather & fail-closed Verify:** Gather diffs against `git merge-base` and blocks symlinks resolving outside the repository root. If `.github/workflows/*.yml` yields no valid CI commands, every proposed command is refused and `Verify` returns `verdict: "no_checks_run"` (`"no allowlisted checks were executed"`) rather than running unverified commands or reporting a false pass.
-- **Secret redaction & rate-limit resilience:** Configured API keys, `Bearer` tokens, `Authorization` headers, and sensitive URL query parameters are scrubbed to `[REDACTED]` across terminal reports, `--json` output, `--out` benchmark artifacts, and errors. `OpenAICompatibleClient` enforces a process-wide single-flight FIFO queue (`concurrency = 1`) and honors HTTP `429` `Retry-After` headers (delta-seconds or HTTP-date / ISO-8601) with bounded jittered exponential backoff.
+- **Secret redaction & rate-limit resilience:** Configured API keys, `Bearer` tokens, `Authorization` headers, and sensitive URL query parameters are scrubbed to `[REDACTED]` across terminal reports, `--json` output, `--out` benchmark artifacts, and errors. `OpenAICompatibleClient` enforces a process-wide single-flight FIFO queue (`concurrency = 1`) and retries transient HTTP `429` (rate limit) and `503` (service unavailable) responses, honoring `Retry-After` headers (delta-seconds or HTTP-date / ISO-8601) with bounded jittered exponential backoff.
 - **Adversarially verified test suite:** Protected by an extensive Vitest unit and adversarial security test suite across 12 test files, including dedicated allowlist, gather, env-isolation, redaction, and injection tests in `test/adversarial.test.ts`.
 
 ---
@@ -309,7 +311,38 @@ Preflight includes a curated, hand-verified benchmark corpus of **35 real public
   - `fail-01-express-pr-7531` (`expressjs/express#7531`): reproduces exit code `9` in **`0.84s`** via `npx mocha test/app.listRoutes.js`.
   - `fail-10-werkzeug-pr-3269` (`pallets/werkzeug#3269`): reproduces exit code `1` in **`0.80s`** via `pytest tests/sansio/test_accept_mimetype_cases.py`.
 
-> **Live Benchmark Status:** The 35-case benchmark corpus ([`bench/README.md`](./bench/README.md)), 2 local `<1s` anchor reproductions ([`bench/REPRO.md`](./bench/REPRO.md)), and the `preflight bench` evaluation runner (`src/bench/`) are implemented and unit-tested. Live LLM benchmark runs (`preflight bench --out bench/results`) have **not yet been executed** and will be published in a follow-up update once run against local Ollama and cloud providers. Preflight never reports fabricated or extrapolated benchmark scores.
+### Live Benchmark Results (`gemini / gemini-3.5-flash-lite`, `mode: triage`)
+
+Recorded on `2026-11-26T17:06:10.089Z` via `node dist/cli.js bench --provider gemini --delay 4200 --out bench/results` (Gemini Free Tier, `$0`, `https://generativelanguage.googleapis.com/v1beta/openai`). Full per-case tables and raw telemetry are committed verbatim in [`bench/results/summary.md`](./bench/results/summary.md) and [`bench/results/results.json`](./bench/results/results.json).
+
+> **Scope Note (`mode: triage`):** `preflight bench` evaluates static Stage 2 (`Think`) predictions and Stage 3 (`Verify`) workflow-derived command allowlist enforcement from case metadata (`changed_files`, `workflow_file`, baseline CI commands) without leaking ground-truth status, logs, or root-cause labels. This is distinct from local repository checkout and subprocess execution (see [`bench/REPRO.md`](./bench/REPRO.md) for `<1s` local reproductions).
+
+| Metric | Measured Value |
+| :--- | :--- |
+| **Total Cases** | `35` (`25` failed, `10` passing across 10 JS/TS & Python repos) |
+| **Caught (exact allowlisted failing CI command)** | **`15 / 25` (`60.0%`)** |
+| **Target Hit (diagnostic, grounded in `root_cause_label`)** | **`22 / 25` (`88.0%`)** |
+| **Missed** | **`10 / 25` (`40.0%`)** |
+| **Static-Triage False Alarms (passing PRs, `likely_failures.length > 0`)** | **`10 / 10` (`100.0%`)** |
+| **Allowlist Refusals** | **`3`** (`fail-08`, `fail-21`, `pass-03`) |
+| **Errors** | **`0`** |
+| **Latency (median / p95 wall; median think)** | **`2,218.9 ms`** / **`4,344.1 ms`** (`2,218.4 ms` think) |
+| **Median Throughput** | **`93.7 tok/s`** |
+
+#### Per-Category Breakdown (25 Failed Cases)
+
+| Failure Category | Caught (Exact CI Command) | Target Hit (Diagnostic) |
+| :--- | :---: | :---: |
+| **`typecheck`** | `5 / 5` (`100.0%`) | `5 / 5` (`100.0%`) |
+| **`lint_format`** | `7 / 7` (`100.0%`) | `5 / 7` (`71.4%`) |
+| **`unit_test`** | `3 / 13` (`23.1%`) | `12 / 13` (`92.3%`) |
+| **Total** | **`15 / 25` (`60.0%`)** | **`22 / 25` (`88.0%`)** |
+
+**Honest Interpretation:**
+
+- **Exact CI wrapper vs. scoped test runner (`unit_test`):** Exact failing CI command matches occurred on `3 / 13` `unit_test` cases (`fail-02`, `fail-09`, `fail-16`). On all 10 remaining `unit_test` cases (`fail-01`, `fail-03`, `fail-06`, `fail-07`, `fail-10`, `fail-15`, `fail-19`, `fail-21`, `fail-23`, `fail-24`), the model selected an allowlisted scoped underlying test runner (e.g., `npm test test/app.listRoutes.js`, `pnpm test`, `pytest tests/sansio/test_accept_mimetype_cases.py`, `pytest tests/test_source_cli.py`) rather than the repository's CI wrapper (`npm run test-ci`, `nub run test`, `uv run ... tox run`, `make test`).
+- **Why static-triage false alarms are `10 / 10` (`100.0%`):** Without diff hunks or local command execution, the static triage call sees only changed file paths and baseline CI commands, so it conservatively emits affected test/lint targets (`likely_failures.length > 0`) on every passing PR. This directly underscores Preflight's [Core Trust Invariant](#core-trust-invariant): real pass/fail verdicts must come 100% from executed subprocess exit codes, never LLM triage predictions alone.
+- **Allowlist enforcement (`3` refusals, `0` errors):** Across 35 cases, Stage 3 refused 3 unapproved proposals (`fail-08`, `fail-21`, `pass-03`) with zero runtime or schema errors.
 
 ---
 
@@ -321,7 +354,7 @@ Preflight includes a curated, hand-verified benchmark corpus of **35 real public
 - [x] **Phase 3 — Adversarial Hardening & Security Audit:** Allowlist hardening against path traversal, flag/target swaps, and shell injection; secret redaction and bounded output capture (299 Vitest tests across 12 test files at Phase 3 completion, expanded further in Phase 5).
 - [x] **Phase 4 — Story, README & Docs Polish:** Authoritative v0.1.0 README, CLI & JSON contract docs, synced technical specification, ADRs, and agent integration guides grounded directly in the codebase.
 - [x] **Phase 5 — Final 3-Reviewer Audit Panel & Remediation:** Independent 3-reviewer code, security, and documentation panel review completed and remediated (env isolation via `~/.config/preflight/.env` / `--env-file`, custom base URL key guard, child-process key stripping, exact-match-only unmodeled tools, verbatim baseline flag preservation, Python binary & `@args.txt` blocking, Gather symlink/merge-base hardening, provider-safe `--think` payload gating, honest `bench` command-catch scoring, and full doc/skill sync).
-- [ ] **Live Benchmark Run:** Execute `preflight bench --out bench/results` against local Ollama and cloud providers and publish verified recall, false-alarm, and throughput tables.
+- [x] **Live Benchmark Run (`gemini / gemini-3.5-flash-lite`):** Executed `node dist/cli.js bench --provider gemini --delay 4200 --out bench/results` across all 35 curated PRs ($0 Gemini Free Tier, `mode: triage`) and published verified recall, target-hit, static-triage false-alarm, allowlist-refusal, and latency/throughput tables in [`bench/results/summary.md`](./bench/results/summary.md) and [`bench/results/results.json`](./bench/results/results.json) (additional multi-provider and local Ollama comparisons can be run anytime via `preflight bench --out bench/results`).
 
 ---
 
@@ -335,6 +368,7 @@ Preflight includes a curated, hand-verified benchmark corpus of **35 real public
 - [`skills/preflight/SKILL.md`](./skills/preflight/SKILL.md) — Portable Agent Skill definition for AI coding agents
 - [`bench/README.md`](./bench/README.md) — 35-case GitHub PR benchmark corpus summary & curation methodology
 - [`bench/REPRO.md`](./bench/REPRO.md) — End-to-end local `<1s` reproductions of failing CI PRs
+- [`bench/results/summary.md`](./bench/results/summary.md) — Published live `gemini / gemini-3.5-flash-lite` triage benchmark summary (paired with [`bench/results/results.json`](./bench/results/results.json))
 
 ---
 
